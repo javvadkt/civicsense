@@ -1,7 +1,8 @@
 "use client";
+
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {BookOpen,CalendarDays,ClipboardList,ShieldCheck,Users,LogOut,Plus,X,CircleHelp,Upload,Timer,CheckCircle2,RefreshCw,Copy,ExternalLink,FileQuestion} from "lucide-react";
-
+import DutyCalendar from "./DutyCalendar";
 const base="https://dclxjishlusibfiedroo.supabase.co",key="sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
 type Session={access_token:string;refresh_token:string;expires_at?:number;expires_in?:number;user:{id:string}};
 type Profile={id:string;full_name:string;role:"super_admin"|"supervisor"|"student_leader"|"student";active:boolean;requested_role?:("supervisor"|"student")|null;enrollment_number?:string|null};
@@ -31,7 +32,17 @@ async function request(path:string,token:string,method="GET",body?:unknown,prefe
 }
 const route=(table:string,query="")=>`/rest/v1/${table}${query?`?${query}`:""}`;
 const esc=(s:string)=>encodeURIComponent(s);
-async function loadDutyRows(token:string){try{return await request(route("duties","select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&order=duty_date.asc&limit=120"),token)}catch(e:any){if(!/duty_status|schema cache/i.test(e.message||""))throw e;const rows=await request(route("duties","select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&order=duty_date.asc&limit=120"),token);return rows.map((d:any)=>({...d,duty_status:"assigned",status_note:null}))}}
+async function loadDutyRows(token: string) {
+  const since = new Date(Date.now() - 45 * 864e5).toLocaleDateString("en-CA");
+  const filter = `&duty_date=gte.${since}&order=duty_date.asc&limit=200`;
+  try {
+    return await request(route("duties", `select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)${filter}`), token);
+  } catch (e: any) {
+    if (!/duty_status|schema cache/i.test(e.message || "")) throw e;
+    const rows = await request(route("duties", `select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)${filter}`), token);
+    return rows.map((d: any) => ({ ...d, duty_status: "assigned", status_note: null }));
+  }
+}
 function csvRows(input:string){
  const rows:string[][]=[];let row:string[]=[],cell="",quoted=false;
  for(let i=0;i<input.length;i++){const c=input[i];if(quoted){if(c==='"'&&input[i+1]==='"'){cell+='"';i++}else if(c==='"')quoted=false;else cell+=c}else if(c==='"')quoted=true;else if(c===","){row.push(cell);cell=""}else if(c==="\n"){row.push(cell);rows.push(row);row=[];cell=""}else if(c!=="\r")cell+=c}
@@ -130,8 +141,40 @@ export default function Home(){
  async function publishResults(z:Quiz){if(await change("/rest/v1/rpc/publish_quiz_results",{p_quiz_id:z.id})){setQuizzes(old=>old.map(q=>q.id===z.id?{...q,results_published:true}:q));flash("Results published to students.")}}
  async function setDutyStatus(duty:Duty,status:string,reason=""){setError("");setDutyBusy(true);try{await request("/rest/v1/rpc/update_duty_status",token,"POST",{p_duty_id:duty.id,p_status:status,p_reason:reason||null});if(session)await load(session);flash(`Duty status updated: ${dutyStatuses[status]||status}.`)}catch(e:any){setError(e.message)}finally{setDutyBusy(false)}}
  function chooseDutyDate(date:string){const match=duties.find(d=>d.duty_date===date);setDutyDate(date);setDutyChoice(match?.student_id||"auto");setManualDutyStudent("auto");setEditedDutyDate(match?.duty_date||date);setDutyTargetCount(String(match?.target_count||5));setDutyChangeReason("")}
- async function saveDuty(){setError("");setDutyBusy(true);try{if(selectedDuty){const reassigned=dutyChoice!==selectedDuty.student_id;const r=await request("/rest/v1/rpc/save_duty",token,"POST",{p_duty_id:selectedDuty.id,p_duty_date:editedDutyDate,p_student_id:dutyChoice,p_target_count:Number(dutyTargetCount),p_reason:dutyChangeReason.trim()||null});setDutyDate(editedDutyDate);if(session)await load(session);setDutyChangeReason("");flash(reassigned?`${r[0]?.full_name||"Student"} assigned for ${editedDutyDate}.`:"Duty changes saved.")}else if(manualDutyStudent==="auto"){const r=await request("/rest/v1/rpc/assign_next_duty",token,"POST",{p_duty_date:dutyDate,p_target_count:Number(dutyTargetCount)});if(session)await load(session);flash(`${r[0]?.full_name||"Student"} assigned for ${dutyDate}.`)}else{const r=await request("/rest/v1/rpc/assign_duty_manually",token,"POST",{p_duty_date:dutyDate,p_student_id:manualDutyStudent,p_target_count:Number(dutyTargetCount)});if(session)await load(session);flash(`${r[0]?.full_name||"Student"} manually assigned for ${dutyDate}.`)}}catch(e:any){setError(e.message)}finally{setDutyBusy(false)}}
- async function deleteDuty(){if(!selectedDuty||!confirm(`Delete the duty for ${selectedDuty.duty_date}? This will free the student's rotation turn.`))return;setError("");setDutyBusy(true);try{await request("/rest/v1/rpc/delete_duty",token,"POST",{p_duty_id:selectedDuty.id,p_reason:dutyChangeReason.trim()||null});if(session)await load(session);flash(`Duty for ${dutyDate} deleted.`);setDutyChangeReason("")}catch(e:any){setError(e.message)}finally{setDutyBusy(false)}}
+ async function dutySave(p: { date: string; studentId: string; target: number; reason: string }) {
+  setError(""); setDutyBusy(true);
+  try {
+    let r: any;
+    if (selectedDuty) {
+      // a duty exists for this date: edit or reassign it
+      r = await request("/rest/v1/rpc/save_duty", token, "POST", {
+        p_duty_id: selectedDuty.id, p_duty_date: p.date, p_student_id: p.studentId,
+        p_target_count: p.target, p_reason: p.reason || null
+      });
+      setDutyDate(p.date);
+    } else if (p.studentId === "auto") {
+      // no duty yet, "next in rotation" chosen
+      r = await request("/rest/v1/rpc/assign_next_duty", token, "POST", { p_duty_date: dutyDate, p_target_count: p.target });
+    } else {
+      // no duty yet, a specific student chosen
+      r = await request("/rest/v1/rpc/assign_duty_manually", token, "POST", { p_duty_date: dutyDate, p_student_id: p.studentId, p_target_count: p.target });
+    }
+    if (session) await load(session);
+    flash(`${r?.[0]?.full_name || "Duty"} saved for ${selectedDuty ? p.date : dutyDate}.`);
+    return true;
+  } catch (e: any) { setError(e.message); return false } finally { setDutyBusy(false) }
+}
+
+async function dutyDelete(reason: string) {
+  if (!selectedDuty) return false;
+  setError(""); setDutyBusy(true);
+  try {
+    await request("/rest/v1/rpc/delete_duty", token, "POST", { p_duty_id: selectedDuty.id, p_reason: reason || null });
+    if (session) await load(session);
+    flash(`Duty for ${dutyDate} deleted.`);
+    return true;
+  } catch (e: any) { setError(e.message); return false } finally { setDutyBusy(false) }
+}
  async function activateMember(p:Profile){const role=roles[p.id]||p.requested_role||p.role;const enrollment=(enrollmentEdits[p.id]??p.enrollment_number??"").trim();await change("/rest/v1/rpc/activate_member",{p_profile_id:p.id,p_role:role,p_enrollment_number:["student","student_leader"].includes(role)?enrollment:null})}
  const filteredQuizQuestions=useMemo(()=>approved.filter(q=>(quizSpecialFilter==="all"||(quizSpecialFilter==="special"?q.is_special:!q.is_special))&&(!quizAuthorFilter.length||quizAuthorFilter.includes(q.author_id))&&(!quizDateFilter||q.created_at.slice(0,10)===quizDateFilter)),[approved,quizSpecialFilter,quizAuthorFilter,quizDateFilter]);
 
@@ -148,22 +191,23 @@ export default function Home(){
 
  {view==="Review queue"&&review&&<section className="card"><h3>Questions to review ({pending.length})</h3><p>Review first submissions and requested revisions. You can edit the question directly, including after approval, from the question bank.</p>{pending.map(q=><div className="review-item" key={q.id}><strong>{q.stem}</strong><small>{q.topic} · {memberName(q.author_id,q.author?.full_name||"Contributor")} · {q.status.replace("_"," ")}</small><ol type="A">{q.options.map((o,i)=><li key={i}>{o}{i===q.correct_index?" ✓ correct":""}</li>)}</ol>{q.explanation&&<p>{q.explanation}</p>}<Source value={q.source_url}/><div className="actions"><button className="primary" onClick={()=>change(route("questions",`id=eq.${q.id}`),{status:"approved"},"PATCH")}>Approve</button><button className="outline" onClick={()=>change(route("questions",`id=eq.${q.id}`),{status:"revision_requested"},"PATCH")}>Request correction</button><button className="outline" onClick={()=>openQuestion(q)}>Edit</button><button className="danger-outline" onClick={async()=>{if(confirm("Delete this question?"))await change(route("questions",`id=eq.${q.id}`),null,"DELETE")}}>Delete</button></div></div>)}{!pending.length&&<Empty text="Nothing is waiting for review."/>}</section>}
 
- {view==="Duty calendar"&&<div className="duty-workspace">
-  <section className="duty-toolbar card">
-   <div><span className="eyebrow">DUTY ROTATION</span><h2>Daily question duty</h2><p>Track each assignment from confirmation through teacher review.</p></div>
-   <div className="duty-date-tools"><button className="outline" aria-label="Previous day" onClick={()=>{const x=new Date(`${dutyDate}T12:00:00`);x.setDate(x.getDate()-1);chooseDutyDate(x.toLocaleDateString("en-CA"))}}>‹</button><label>Duty date<input type="date" value={dutyDate} onChange={e=>chooseDutyDate(e.target.value)}/></label><button className="outline" aria-label="Next day" onClick={()=>{const x=new Date(`${dutyDate}T12:00:00`);x.setDate(x.getDate()+1);chooseDutyDate(x.toLocaleDateString("en-CA"))}}>›</button><button className="outline" onClick={()=>chooseDutyDate(today)}>Today</button></div>
-  </section>
-  <div className="duty-metrics"><article><span>Assigned</span><strong>{duties.length}</strong><small>Scheduled duties</small></article><article><span>Questions today</span><strong>{dutyProgress[0]?.submitted_count||0}<i> / {dutyProgress[0]?.target_count||selectedDuty?.target_count||5}</i></strong><small>Uploaded for {dutyDate}</small></article><article><span>Teacher review</span><strong>{dutyProgress[0]?.approved_count||0}</strong><small>{dutyProgress[0]?.pending_count||0} waiting · {dutyProgress[0]?.revision_requested_count||0} revisions</small></article></div>
-  {selectedDuty?<section className="duty-focus card"><div className="duty-focus-head"><div><span className="eyebrow">{selectedDuty.rotation_cycle?`ROTATION ${selectedDuty.rotation_cycle}`:"ASSIGNED DUTY"} · {selectedDuty.duty_date}</span><h3>{memberName(selectedDuty.student_id,selectedDuty.student?.full_name||"Student")}</h3><p>Prepare {selectedDuty.target_count} current-affairs questions for this date.</p></div><span className={`duty-status status-${selectedDuty.duty_status||"assigned"}`}>{dutyStatuses[selectedDuty.duty_status]||"Assigned"}</span></div>
-   {dutyProgress[0]&&<div className="duty-progress-block"><div className="progress-label"><strong>{dutyProgress[0].submitted_count} of {dutyProgress[0].target_count} questions uploaded</strong><span>{dutyProgress[0].approved_count} approved</span></div><div className="progress-track"><span style={{width:`${Math.min(100,Math.round((dutyProgress[0].submitted_count/dutyProgress[0].target_count)*100))}%`}}/></div><div className="duty-counts"><span>{dutyProgress[0].pending_count} waiting for review</span><span>{dutyProgress[0].revision_requested_count} need revision</span></div></div>}
-   {selectedDuty.status_note&&<p className="duty-note"><b>Latest note:</b> {selectedDuty.status_note}</p>}
-   {manage&&<div className="duty-manage-grid"><div className="duty-edit-form"><h4>Edit this duty</h4><p>Change the date, assigned student, or question target. A reason is optional.</p><label>Assignment date<input type="date" value={editedDutyDate} onChange={e=>setEditedDutyDate(e.target.value)}/></label><label>Assigned student<select value={dutyChoice} onChange={e=>setDutyChoice(e.target.value)}>{dutyCandidates.map(a=><option key={a.profile_id} value={a.profile_id}>{memberName(a.profile_id,a.full_name)}{a.profile_id===selectedDuty.student_id?" · current":""}</option>)}</select></label><label>Question target<input type="number" min="1" max="20" value={dutyTargetCount} onChange={e=>setDutyTargetCount(e.target.value)}/></label><label>Reason (optional)<textarea value={dutyChangeReason} onChange={e=>setDutyChangeReason(e.target.value)} placeholder="Add a note if helpful" rows={2}/></label><div className="duty-admin-actions"><button className="primary" disabled={dutyBusy||!dutyHasEdits||!editedDutyDate||Number(dutyTargetCount)<1||Number(dutyTargetCount)>20} onClick={saveDuty}>{dutyBusy?"Saving…":"Save duty changes"}</button><button className="danger-outline" disabled={dutyBusy} onClick={deleteDuty}>Delete duty</button></div></div>
-    <div className="duty-status-control"><label>Duty status<select value={selectedDuty.duty_status||"assigned"} onChange={e=>setDutyStatus(selectedDuty,e.target.value)} disabled={dutyBusy}>{Object.entries(dutyStatuses).filter(([status])=>status!=="change_requested").map(([status,label])=><option key={status} value={status}>{label}</option>)}</select></label><small>Status saves when you choose it. Use “Reviewed” after checking the questions; record absences as Excused or Missed.</small></div></div>}
-   {selectedDuty.student_id===profile.id&&<div className="duty-self-actions"><strong>Your duty actions</strong><div className="actions">{selectedDuty.duty_status==="assigned"&&<button className="primary" disabled={dutyBusy} onClick={()=>setDutyStatus(selectedDuty,"confirmed")}>Confirm duty</button>}{["assigned","confirmed"].includes(selectedDuty.duty_status)&&<button className="outline" disabled={dutyBusy} onClick={()=>setDutyStatus(selectedDuty,"in_progress")}>Start working</button>}{!(["submitted","reviewed"].includes(selectedDuty.duty_status))&&dutyProgress[0]?.submitted_count>=selectedDuty.target_count&&<button className="primary" disabled={dutyBusy} onClick={()=>setDutyStatus(selectedDuty,"submitted")}>Mark questions submitted</button>}{selectedDuty.duty_status!=="change_requested"&&<button className="outline" disabled={dutyBusy||!dutyChangeReason.trim()} onClick={()=>setDutyStatus(selectedDuty,"change_requested",dutyChangeReason)}>Request urgent change</button>}</div>{selectedDuty.duty_status!=="change_requested"&&<label>Reason for an urgent change<textarea value={dutyChangeReason} onChange={e=>setDutyChangeReason(e.target.value)} rows={2} placeholder="Tell the supervisor what changed"/></label>}</div>}
-  </section>:<section className="duty-empty card"><div className="empty-mark"><CalendarDays size={22}/></div><div className="manual-assignment"><h3>No duty assigned for {dutyDate}</h3><p>Assign the next person in rotation or choose a student yourself.</p>{manage&&<div className="manual-assignment-form"><label>Who should take this duty?<select value={manualDutyStudent} onChange={e=>setManualDutyStudent(e.target.value)}><option value="auto">Automatically choose the next eligible student</option>{dutyCandidates.map(a=><option key={a.profile_id} value={a.profile_id}>{memberName(a.profile_id,a.full_name)}</option>)}</select></label><label>Question target<input type="number" min="1" max="20" value={dutyTargetCount} onChange={e=>setDutyTargetCount(e.target.value)}/></label><button className="primary" disabled={dutyBusy||!dutyDate||Number(dutyTargetCount)<1||Number(dutyTargetCount)>20} onClick={saveDuty}>{dutyBusy?"Assigning…":manualDutyStudent==="auto"?"Assign next student":"Assign selected student"}</button></div>}</div></section>}
-  <section className="card duty-list"><div className="duty-list-heading"><div><h3>Upcoming duty schedule</h3><p>Select a date to check progress or make a change.</p></div><span>{duties.filter(d=>d.duty_date>=today).length} upcoming</span></div>{duties.filter(d=>d.duty_date>=today).slice(0,14).map(d=>{const progress=dutyProgress.find((x:any)=>x.duty_id===d.id);return <button className={`duty-list-row ${d.id===selectedDuty?.id?"selected":""}`} key={d.id} onClick={()=>chooseDutyDate(d.duty_date)}><span className="schedule-date">{new Date(`${d.duty_date}T12:00:00`).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}<small>{d.duty_date}</small></span><span className="schedule-person"><strong>{memberName(d.student_id,d.student?.full_name||"Student")}</strong><small>{progress?`${progress.submitted_count}/${progress.target_count} questions uploaded`:`${d.target_count} questions due`}</small></span><span className={`duty-status status-${d.duty_status||"assigned"}`}>{dutyStatuses[d.duty_status]||"Assigned"}</span><span className="schedule-arrow">›</span></button>})}{!duties.some(d=>d.duty_date>=today)&&<Empty text="No upcoming duties have been assigned."/>}</section>
- </div>}
-
+ {view === "Duty calendar" && <DutyCalendar
+  profile={profile}
+  duties={duties}
+  people={people}
+  availability={dutyAvailability}
+  progress={dutyProgress[0]}
+  dutyDate={dutyDate}
+  today={today}
+  manage={manage}
+  busy={dutyBusy}
+  memberName={memberName}
+  onSelectDate={setDutyDate}
+  onSave={dutySave}
+  onDelete={dutyDelete}
+  onStatus={setDutyStatus}
+/>}
+   
  {view==="Quizzes"&&<><section className="card"><h3>Daily, weekly and special quizzes</h3>{quizzes.map(z=>{const attempt=myAttempts.get(z.id),live=z.published&&new Date(z.opens_at)<=new Date()&&new Date(z.closes_at)>=new Date(),studentRole=["student","student_leader"].includes(profile.role);return <div className="row quiz-row" key={z.id}><div><strong>{z.title}</strong><small>{z.kind} · {new Date(z.opens_at).toLocaleString()} · {z.duration_minutes} minutes · Results {z.result_visibility==="immediate"?"after submission":"after staff release"}</small>{attempt&&<small className="attended"><CheckCircle2 size={14}/> Attended · submitted {new Date(attempt.submitted_at).toLocaleString()}</small>}</div><div className="actions">{manage&&<button className="outline" onClick={async()=>{try{setAttendance(await request("/rest/v1/rpc/get_quiz_participation",token,"POST",{p_quiz_id:z.id}));setAttendanceQuiz(z.id)}catch(e:any){setError(e.message)}}}>Attendance</button>}{review&&z.result_visibility==="after_release"&&!z.results_published&&<button className="outline" onClick={()=>publishResults(z)}>Publish results</button>}{studentRole&&attempt&&(z.result_visibility==="immediate"||z.results_published)&&<button className="outline" onClick={()=>showResult(z)}>Review answers</button>}{studentRole&&attempt&&z.result_visibility==="after_release"&&!z.results_published&&<span className="tag pending">Results pending</span>}{studentRole&&attempt&&<span className="tag approved">Attended</span>}{studentRole&&!attempt&&<button className="primary" disabled={!live} onClick={()=>openQuiz(z)}>{live?"Start quiz":new Date(z.opens_at)>new Date()?"Opens later":"Closed"}</button>}</div></div>})}{!quizzes.length&&<Empty text="No quizzes have been published."/>}</section>
  {attendanceQuiz&&manage&&<section className="card"><h3>Attendance · {quizzes.find(q=>q.id===attendanceQuiz)?.title}</h3><p>All current active students are listed, including students who have not submitted.</p>{attendance.map(a=><div className="row" key={a.student_id}><div><strong>{memberName(a.student_id,a.full_name)}</strong><small>{a.role==="student_leader"?"Student leader":"Student"}{a.attended&&a.submitted_at?` · Submitted ${new Date(a.submitted_at).toLocaleString()}`:""}</small></div><span className={`tag ${a.attended?"approved":"pending"}`}>{a.attended?(`Attended · ${a.score}/${a.total}`):"Not submitted"}</span></div>)}</section>}
  {selectedResult&&<section className="card result-card"><div className="result-heading"><div><h3>{selectedResult.title} · answer review</h3><p>Score {selectedResult.score} / {selectedResult.total} · {selectedResult.questions.filter((q:any)=>q.is_correct).length} correct · {selectedResult.questions.filter((q:any)=>!q.is_correct).length} to revisit</p></div><button className="outline" onClick={()=>setSelectedResult(null)}>Close</button></div>{selectedResult.questions.map((q:any,i:number)=><article className="answer-review" key={q.id}><strong>{i+1}. {q.stem}</strong><span className={`tag ${q.is_correct?"approved":"revision_requested"}`}>{q.is_correct?"Correct":"Review"}</span><p>Your answer: {q.selected_index===null?"No answer":q.options[q.selected_index]}</p><p>Correct answer: <b>{q.options[q.correct_index]}</b></p>{q.explanation&&<p>{q.explanation}</p>}<Source value={q.source}/></article>)}</section>}
