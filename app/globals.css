@@ -182,3 +182,16 @@
 .quiz-row>.actions{margin:0;flex-wrap:wrap;align-items:center;justify-content:flex-end}
 .quiz-row .actions button{white-space:nowrap}
 @media(max-width:760px){.quiz-row>.actions{width:100%;justify-content:flex-start}}
+/* toasts */
+.toasts{position:fixed;z-index:300;right:16px;bottom:16px;display:grid;gap:10px;width:min(380px,calc(100vw - 32px));pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:13px 14px;border-radius:12px;border:1px solid;box-shadow:0 10px 30px #0f2a4a33;font-size:14px;line-height:1.45;animation:toast-in .18s ease-out}
+.toast span{flex:1;overflow-wrap:anywhere}
+.toast button{border:0;background:transparent;color:inherit;font-size:20px;line-height:1;opacity:.7;padding:0 2px}
+.toast-error{background:#fff0ef;color:#a4342b;border-color:#f0c4c0}
+.toast-success{background:#e9f6ee;color:#21643e;border-color:#bfe0cb}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(max-width:560px){.toasts{left:16px;right:16px;width:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px))}}
+/* add member popup */
+.member-modal{width:min(100%,560px)}
+.member-modal .modal-scroll{background:#fff;padding:22px 24px}
+.member-modal .modal-scroll>p{margin:0 0 16px;color:#64758a;font-size:14px}
