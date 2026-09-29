@@ -174,3 +174,6 @@
   .qb-grid,.qb-radios{grid-template-columns:1fr}.qb-row2{grid-template-columns:1fr 1fr}.qb-row2 label:first-child{grid-column:1/-1}
   .qb-card{padding:16px}.qb-foot{flex-wrap:wrap}.qb-sum{flex-basis:100%}.qb-foot .primary,.qb-foot .outline{flex:1}
 }
+.qb-overlay .qb-top{margin-bottom:0}
+.qb-card .qb-search input[type=search]{padding-left:36px}
+.qb-card .qb-random input[type=number]{width:64px;padding:8px}
