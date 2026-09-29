@@ -8,3 +8,91 @@
 @media(max-width:560px){.duty-metrics{grid-template-columns:1fr}.duty-metrics article{padding:14px 16px}.duty-metrics article strong{font-size:23px;margin:5px 0}.duty-date-tools{display:grid;grid-template-columns:1fr 1fr}.duty-date-tools label{grid-column:span 2;grid-row:1}.duty-date-tools input{width:100%}.duty-date-tools button{width:100%}.duty-focus-head{flex-direction:column}.duty-list-heading{align-items:flex-start;padding:16px}.duty-list-row{grid-template-columns:1fr auto;gap:8px 12px;padding:13px 16px}.schedule-date{grid-column:1}.schedule-person{grid-column:1}.duty-list-row>.duty-status{grid-column:2;grid-row:1/3}.schedule-arrow{display:none}.duty-empty .primary{width:100%}}
 .duty-edit-form{display:grid;gap:12px}.duty-edit-form h4{margin:0;font-size:17px;color:#203e60}.duty-edit-form>p{margin:-7px 0 2px;color:#687a91;font-size:14px;line-height:1.5}.duty-edit-form>label,.manual-assignment-form>label{display:grid;gap:7px;color:#435b77;font-size:14px;font-weight:700}.duty-edit-form input,.manual-assignment-form input,.manual-assignment-form select{width:100%;padding:11px 12px;border:1px solid #d5deea;border-radius:9px;background:#fff;color:#253b56}.duty-admin-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.duty-empty{align-items:flex-start}.manual-assignment{flex:1;min-width:min(100%,330px)}.manual-assignment-form{display:grid;grid-template-columns:minmax(0,1fr) 145px;align-items:end;gap:12px;margin-top:16px}.manual-assignment-form>label:first-child{grid-column:1/-1}.manual-assignment-form>.primary{min-height:43px}.duty-status-control{display:grid;gap:10px}
 @media(max-width:560px){.manual-assignment-form{grid-template-columns:1fr}.manual-assignment-form>label:first-child{grid-column:auto}.manual-assignment-form>.primary{width:100%}.duty-admin-actions>*{flex:1}.duty-edit-form>label input,.manual-assignment-form input{min-height:44px}}
+/* ===== Duty calendar v2: append to the END of app/globals.css ===== */
+.dc{display:grid;gap:16px}
+.dc-bar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0;border-left:4px solid #245c91}
+.dc-bar h2{margin:6px 0 4px;font-size:23px}.dc-bar p{margin:0;color:#65778e}
+.dc-nav{display:flex;align-items:center;gap:8px}
+.dc-nav input{height:42px;padding:0 10px;border:1px solid #d5deea;border-radius:9px;background:#fff;min-width:150px}
+.dc-nav button{height:42px;padding:0 12px}
+
+.dc-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.dc-day{display:grid;justify-items:center;gap:3px;padding:11px 4px;border:1px solid #e1e8f1;border-radius:12px;background:#fff;color:#2a4260;min-width:0}
+.dc-day small{font-size:12px;color:#6b7d93;text-transform:uppercase;letter-spacing:.05em}
+.dc-day b{font-size:19px}
+.dc-day em{font-style:normal;font-size:12px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4b6178}
+.dc-day em.none{color:#93a2b5}
+.dc-day.gap{border-style:dashed;background:#fafcfe}
+.dc-day.today b{color:#1d548e;text-decoration:underline;text-underline-offset:4px}
+.dc-day:hover{background:#f4f8fc}
+.dc-day.on{border-color:#245c91;box-shadow:0 0 0 2px #245c9126;background:#f1f7fd}
+.dc-dot{height:8px;width:8px;border-radius:50%;background:#9aa9bb}
+.dc-dot.status-confirmed,.dc-dot.status-reviewed{background:#2f8a52}
+.dc-dot.status-in_progress,.dc-dot.status-submitted{background:#2f6fb3}
+.dc-dot.status-change_requested{background:#d08a1c}
+.dc-dot.status-missed{background:#c4483c}
+.dc-dot.status-excused{background:#7a8797}
+
+.dc-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.dc-metrics article{padding:16px 18px;background:#fff;border:1px solid #e1e8f1;border-radius:12px;display:grid;gap:5px;align-content:start}
+.dc-metrics span,.dc-metrics small{color:#63758b;font-size:14px}
+.dc-metrics strong{font-size:26px;color:#173e68;font-variant-numeric:tabular-nums}
+.dc-metrics strong i{font-style:normal;font-size:15px;color:#74869b;font-weight:400}
+
+.dc-focus,.dc-empty{margin:0}
+.dc-focus{border-top:3px solid #285d91}
+.dc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.dc-head h3{margin:7px 0;font-size:23px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dc-head p{margin:0;color:#65778e}
+.dc-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.dc-you{font-size:12px;font-weight:700;background:#1d548e;color:#fff;border-radius:99px;padding:3px 9px}
+
+.dc-alert{display:flex;gap:12px;margin-top:18px;padding:14px 16px;border-radius:12px;background:#fff6e6;border:1px solid #f0d9a8;color:#7a4d0c}
+.dc-alert p{margin:4px 0 10px}
+
+.dc-steps{list-style:none;display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:22px 0 4px;padding:0}
+.dc-steps li{display:grid;justify-items:center;gap:6px;text-align:center;font-size:12px;color:#7a8ba0;font-weight:600;position:relative}
+.dc-steps li span{height:28px;width:28px;border-radius:50%;display:grid;place-items:center;background:#edf2f8;color:#6d7f95;font-size:13px;z-index:1}
+.dc-steps li::before{content:"";position:absolute;top:13px;left:-50%;width:100%;height:2px;background:#e1e8f1}
+.dc-steps li:first-child::before{display:none}
+.dc-steps li.done span{background:#2f8a52;color:#fff}.dc-steps li.done::before,.dc-steps li.now::before{background:#2f8a52}
+.dc-steps li.now span{background:#1d548e;color:#fff}.dc-steps li.now{color:#1d548e}
+
+.dc-staff{display:grid;gap:8px;margin-top:20px;padding-top:18px;border-top:1px solid #e7edf4}
+.dc-staff>strong{color:#25476d}.dc-staff .actions{margin:0;flex-wrap:wrap;align-items:center}
+.dc-more{position:relative}
+.dc-more summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;padding:10px 15px;border-radius:9px;font-size:14px;font-weight:700}
+.dc-more summary::-webkit-details-marker{display:none}
+.dc-more>div{position:absolute;z-index:5;top:calc(100% + 6px);left:0;min-width:190px;display:grid;background:#fff;border:1px solid #dce5ef;border-radius:10px;box-shadow:0 10px 30px #183c6722;padding:6px}
+.dc-more>div button{border:0;background:transparent;text-align:left;padding:9px 10px;border-radius:7px;font-weight:600;color:#33506f}
+.dc-more>div button:hover{background:#eef4fa}
+.dc-urgent{display:flex;gap:8px;flex-wrap:wrap}
+.dc-urgent input{flex:1;min-width:220px;padding:10px 12px;border:1px solid #d5deea;border-radius:9px}
+
+.dc-empty{display:flex;gap:16px;align-items:flex-start;border:1px dashed #b9c9da;background:#fafdff}
+.dc-empty>div:last-child{flex:1;min-width:0}.dc-empty h3{margin:0 0 6px}.dc-empty p{margin:0 0 14px;color:#65778e}
+.dc-assign{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:12px;align-items:end}
+.dc-assign label,.dc-form label{display:grid;gap:7px;font-size:14px;font-weight:700;color:#435b77}
+.dc-assign select,.dc-assign input,.dc-form select,.dc-form input,.dc-form textarea{width:100%;padding:11px 12px;border:1px solid #d5deea;border-radius:9px;background:#fff;color:#253b56}
+.dc-assign .primary{min-height:43px}
+
+.dc-tabs{display:flex;gap:4px;background:#f0f4f8;border-radius:10px;padding:4px}
+.dc-tabs button{border:0;background:transparent;padding:7px 12px;border-radius:7px;font-size:13px;font-weight:700;color:#526880}
+.dc-tabs button.on{background:#fff;color:#1d548e;box-shadow:0 1px 4px #183c6720}
+.duty-list-row.mine{box-shadow:inset 3px 0 0 #1d548e}
+.duty-list-row .schedule-person strong{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+.dc-modal{max-width:520px}
+.dc-form{display:grid;gap:14px;background:#fff;border:1px solid #e4eaf2;border-radius:14px;padding:18px}
+.dc-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 22px;background:#fff;border-top:1px solid #e3eaf3;position:sticky;bottom:0}
+.dc-foot .grow{flex:1}.dc-foot>span:not(.grow){flex:1;font-size:14px;color:#8a3a33;min-width:180px}
+
+@media(max-width:760px){
+  .dc-bar{flex-direction:column;align-items:stretch}.dc-nav{display:grid;grid-template-columns:44px 1fr 44px;}.dc-nav>button:last-child{grid-column:1/-1}
+  .dc-metrics{grid-template-columns:1fr}
+  .dc-week{grid-template-columns:repeat(7,72px);overflow-x:auto;padding-bottom:4px}
+  .dc-head{flex-direction:column}.dc-head-actions{justify-content:flex-start}
+  .dc-steps li{font-size:10px}
+  .dc-assign{grid-template-columns:1fr}.dc-assign .primary{width:100%}
+  .dc-empty{flex-direction:column}
+}
