@@ -7,7 +7,7 @@ export type QuizPayload = { title: string; kind: string; ids: string[]; opens: s
 type Props = {
   questions: Q[];
   memberName: (id: string, name: string) => string;
-  onCreate: (p: QuizPayload) => Promise<boolean>;
+  onCreate: (p: QuizPayload) => Promise<void>; // should throw on failure
   onClose: () => void;
 };
 
@@ -24,7 +24,7 @@ export default function QuizBuilder({ questions, memberName, onCreate, onClose }
   const [search, setSearch] = useState(""), [cat, setCat] = useState("all"), [topic, setTopic] = useState("all");
   const [authors, setAuthors] = useState<string[]>([]), [from, setFrom] = useState(""), [to, setTo] = useState("");
   const [picked, setPicked] = useState<string[]>([]), [randomN, setRandomN] = useState(10);
-  const [review, setReview] = useState(false), [busy, setBusy] = useState(false);
+  const [review, setReview] = useState(false), [busy, setBusy] = useState(false), [err, setErr] = useState("");
 
   const byId = useMemo(() => new Map(questions.map(q => [q.id, q])), [questions]);
   const topics = useMemo(() => Array.from(new Set(questions.map(q => q.topic))).sort(), [questions]);
@@ -69,16 +69,20 @@ export default function QuizBuilder({ questions, memberName, onCreate, onClose }
   const fmt = (v: string) => new Date(v).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
   async function publish() {
-    setBusy(true);
-    const ok = await onCreate({ title: title.trim(), kind, ids: picked, opens, closes, duration, visibility });
-    setBusy(false);
-    if (ok) { setReview(false); onClose() } else setReview(false);
+    setBusy(true); setErr("");
+    try {
+      await onCreate({ title: title.trim(), kind, ids: picked, opens, closes, duration, visibility });
+      setReview(false); onClose();
+    } catch (e: any) {
+      setErr(e?.message || "Could not create the quiz."); setReview(false);
+    } finally { setBusy(false) }
   }
 
   return <div className="qb-overlay" role="dialog" aria-modal="true" aria-labelledby="qb-title">
     <header className="qb-top"><div><span className="eyebrow">QUIZ BUILDER</span><h2 id="qb-title">Create a quiz</h2></div><button className="icon-button" aria-label="Close builder" onClick={onClose}><X /></button></header>
 
     <div className="qb-body">
+      {err && <div className="error" role="alert">{err}<button onClick={() => setErr("")}>×</button></div>}
       <section className="qb-card">
         <div className="qb-step"><span>1</span><div><h3>Quiz details</h3><p>Name it, set when it opens, and choose when students see scores.</p></div></div>
         <div className="qb-grid">
