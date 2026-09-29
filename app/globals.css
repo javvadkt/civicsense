@@ -177,3 +177,8 @@
 .qb-overlay .qb-top{margin-bottom:0}
 .qb-card .qb-search input[type=search]{padding-left:36px}
 .qb-card .qb-random input[type=number]{width:64px;padding:8px}
+.quiz-row{flex-wrap:wrap}
+.quiz-row>div:first-child{flex:1 1 240px;min-width:0}
+.quiz-row>.actions{margin:0;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.quiz-row .actions button{white-space:nowrap}
+@media(max-width:760px){.quiz-row>.actions{width:100%;justify-content:flex-start}}
