@@ -12,7 +12,7 @@ type Payload = { date: string; studentId: string; target: number; reason: string
 type Props = {
   profile: { id: string; role: string };
   duties: any[]; people: any[]; availability: any[]; progress: any | undefined;
-  dutyDate: string; today: string; manage: boolean; busy: boolean;
+  dutyDate: string; today: string; manage: boolean; review: boolean; busy: boolean;
   memberName: (id: string, name: string) => string;
   onSelectDate: (date: string) => void;
   onSave: (p: Payload) => Promise<boolean>;
@@ -21,7 +21,7 @@ type Props = {
 };
 
 export default function DutyCalendar(p: Props) {
-  const { duties, dutyDate, today, manage, busy, progress, memberName } = p;
+  const { duties, dutyDate, today, manage, review, busy, progress, memberName } = p;
   const selected = duties.find(d => d.duty_date === dutyDate);
   const byDate = new Map(duties.map(d => [d.duty_date, d]));
   const start = weekStart(dutyDate);
@@ -58,6 +58,7 @@ export default function DutyCalendar(p: Props) {
   const uploaded = progress?.submitted_count ?? 0, target = progress?.target_count ?? selected?.target_count ?? 5;
   const pct = Math.min(100, Math.round((uploaded / Math.max(1, target)) * 100));
   const isToday = dutyDate === today;
+  const enough = uploaded >= target;
 
   return <div className="dc">
     <section className="card dc-bar">
@@ -97,11 +98,11 @@ export default function DutyCalendar(p: Props) {
 
       {selected.status_note && status !== "change_requested" && <p className="duty-note"><b>Latest note:</b> {selected.status_note}</p>}
 
-      {manage && <div className="dc-staff"><strong>Teacher actions</strong><div className="actions">
-        <button className="primary" disabled={busy || status === "reviewed"} onClick={() => p.onStatus(selected, "reviewed")}>Mark reviewed</button>
+      {review && <div className="dc-staff"><strong>Teacher actions</strong><div className="actions">
+        <button className="primary" disabled={busy || status === "reviewed" || !enough} onClick={() => p.onStatus(selected, "reviewed")}>Mark reviewed</button>
         {status === "assigned" && <button className="outline" disabled={busy} onClick={() => p.onStatus(selected, "confirmed")}>Mark confirmed</button>}
-        <details className="dc-more"><summary className="outline">More status</summary><div>{["assigned", "in_progress", "submitted", "excused", "missed"].filter(s => s !== status).map(s => <button key={s} disabled={busy} onClick={() => p.onStatus(selected, s)}>{dutyStatuses[s]}</button>)}</div></details>
-      </div></div>}
+        <details className="dc-more"><summary className="outline">More status</summary><div>{["assigned", "in_progress", "submitted", "excused", "missed"].filter(s => s !== status && (s !== "submitted" || enough)).map(s => <button key={s} disabled={busy} onClick={() => p.onStatus(selected, s)}>{dutyStatuses[s]}</button>)}</div></details>
+      </div>{!enough && <small className="dc-hint">Can be reviewed once all {target} questions are uploaded ({uploaded} so far).</small>}</div>}
 
       {mine && <div className="dc-staff"><strong>Your duty</strong><div className="actions">
         {status === "assigned" && <button className="primary" disabled={busy} onClick={() => p.onStatus(selected, "confirmed")}>Confirm duty</button>}
