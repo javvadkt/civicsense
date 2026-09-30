@@ -111,8 +111,8 @@ export default function Home(){
  }catch(e:any){setError(e.message)}finally{setLoading(false)}})()},[load]);
  useEffect(()=>{if(session&&profile?.active){setRefreshing(true);load(session).catch((e:any)=>setError(e.message)).finally(()=>setRefreshing(false))}},[view,session,profile?.active,load]);
  useEffect(()=>{const onVisible=()=>{if(document.visibilityState==="visible"&&session)load(session).catch((e:any)=>setError(e.message))};window.addEventListener("focus",onVisible);document.addEventListener("visibilitychange",onVisible);return()=>{window.removeEventListener("focus",onVisible);document.removeEventListener("visibilitychange",onVisible)}},[session,load]);
- useEffect(()=>{if(!session||!profile?.active||!manage||view!=="Duty calendar")return;
-  Promise.all([request("/rest/v1/rpc/get_duty_progress",token,"POST",{p_duty_date:dutyDate}),request("/rest/v1/rpc/get_duty_availability",token,"POST",{p_duty_date:dutyDate})])
+ useEffect(()=>{if(!session||!profile?.active||view!=="Duty calendar")return;
+  Promise.all([request("/rest/v1/rpc/get_duty_progress",token,"POST",{p_duty_date:dutyDate}),manage?request("/rest/v1/rpc/get_duty_availability",token,"POST",{p_duty_date:dutyDate}):Promise.resolve([])])
    .then(([progress,avail])=>{setDutyProgress(progress||[]);setDutyAvailability(avail||[])}).catch((e:any)=>setError(e.message));
  },[session,profile?.active,profile?.id,manage,view,dutyDate,token]);
  useEffect(()=>{const duty=duties.find(d=>d.duty_date===dutyDate);if(duty){setDutyChoice(duty.student_id);setEditedDutyDate(duty.duty_date);setDutyTargetCount(String(duty.target_count))}else{setDutyChoice("auto");setEditedDutyDate(dutyDate);setDutyTargetCount("5")}},[duties,dutyDate]);
@@ -211,6 +211,7 @@ async function createQuiz(p:{title:string;kind:string;ids:string[];opens:string;
   dutyDate={dutyDate}
   today={today}
   manage={manage}
+  review={review}                              
   busy={dutyBusy}
   memberName={memberName}
   onSelectDate={setDutyDate}
