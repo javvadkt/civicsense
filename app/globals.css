@@ -195,3 +195,4 @@
 .member-modal{width:min(100%,560px)}
 .member-modal .modal-scroll{background:#fff;padding:22px 24px}
 .member-modal .modal-scroll>p{margin:0 0 16px;color:#64758a;font-size:14px}
+.dc-hint{display:block;color:#8a5a12;font-size:13px;line-height:1.45}
