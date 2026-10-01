@@ -1947,7 +1947,7 @@ export default function Home() {
             </div>
 
             {/* Quiz Cards */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {quizzes
                 .filter(z => {
                   if (z.is_hidden && !review) return false;
@@ -1989,7 +1989,11 @@ export default function Home() {
 
                   // Determine if this user role has actions available in the dropdown
                   const canPublish = review && z.result_visibility === "after_release" && !z.results_published;
-                  const canViewQuestions = review;
+                  const canReviewAnswers =
+                    ((isStudent && isClosed) || isLeader) &&
+                    attempt &&
+                    (z.result_visibility === "immediate" || z.results_published);
+                  const canViewQuestions = review || (isStudent && isClosed);
                   const canStartNow = (isTeacher || isAdmin) && isUpcoming;
                   const canEditQuiz = (isTeacher || isAdmin) && isUpcoming;
                   const canEndEarly = (isTeacher || isAdmin) && isLive;
@@ -1998,31 +2002,35 @@ export default function Home() {
                   const canDelete = isAdmin || (isTeacher && isUpcoming);
 
                   const hasDropdownActions =
-                    isLeader ||
-                    canPublish ||
-                    canViewQuestions ||
-                    canStartNow ||
-                    canEditQuiz ||
-                    canEndEarly ||
-                    canRecalculate ||
-                    canToggleHide ||
-                    canDelete;
+                    isStudent && (isLive || isUpcoming)
+                      ? false
+                      : isLeader ||
+                        canReviewAnswers ||
+                        canViewQuestions ||
+                        canPublish ||
+                        canStartNow ||
+                        canEditQuiz ||
+                        canEndEarly ||
+                        canRecalculate ||
+                        canToggleHide ||
+                        canDelete;
 
                   return (
                     <section
                       key={z.id}
                       className="card"
                       style={{
-                        padding: "16px 20px",
+                        margin: 0,
+                        padding: "14px 18px",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
                         flexWrap: "wrap",
-                        gap: "14px",
+                        gap: "10px",
                         borderLeft: isLive ? "4px solid #10b981" : isUpcoming ? "4px solid #f59e0b" : "4px solid #94a3b8"
                       }}
                     >
-                      <div style={{ flex: 1, minWidth: "260px" }}>
+                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
                           <strong style={{ fontSize: "16px" }}>{z.title}</strong>
                           <span className={`tag ${statusTag.cls}`}>{statusTag.label}</span>
@@ -2053,8 +2061,18 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* Action Area: Single Primary CTA + Kebab Menu */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative" }}>
+                      {/* Action Area: Card CTA + Kebab Menu */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          position: "relative",
+                          marginLeft: "auto",
+                          justifyContent: "flex-end",
+                          flexShrink: 0
+                        }}
+                      >
                         {(isStudent || isLeader) &&
                           (attempt ? (
                             z.result_visibility === "immediate" || z.results_published ? (
