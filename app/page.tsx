@@ -1989,11 +1989,14 @@ export default function Home() {
 
                   // Determine if this user role has actions available in the dropdown
                   const canPublish = review && z.result_visibility === "after_release" && !z.results_published;
+                  // Teachers and admins only for viewing question analytics
+                  const canViewQuestions = review;
+                  // Review answers belongs inside the kebab menu when closed
                   const canReviewAnswers =
-                    ((isStudent && isClosed) || isLeader) &&
+                    (isStudent || isLeader) &&
+                    isClosed &&
                     attempt &&
                     (z.result_visibility === "immediate" || z.results_published);
-                  const canViewQuestions = review || (isStudent && isClosed);
                   const canStartNow = (isTeacher || isAdmin) && isUpcoming;
                   const canEditQuiz = (isTeacher || isAdmin) && isUpcoming;
                   const canEndEarly = (isTeacher || isAdmin) && isLive;
@@ -2001,19 +2004,19 @@ export default function Home() {
                   const canToggleHide = isAdmin;
                   const canDelete = isAdmin || (isTeacher && isUpcoming);
 
-                  const hasDropdownActions =
-                    isStudent && (isLive || isUpcoming)
-                      ? false
-                      : isLeader ||
-                        canReviewAnswers ||
-                        canViewQuestions ||
-                        canPublish ||
-                        canStartNow ||
-                        canEditQuiz ||
-                        canEndEarly ||
-                        canRecalculate ||
-                        canToggleHide ||
-                        canDelete;
+                  // Regular students NEVER see kebab on Live or Upcoming quizzes.
+                  // On Closed quizzes, regular students only see kebab if they can Review Answers.
+                  const hasDropdownActions = isStudent
+                    ? (isClosed && canReviewAnswers)
+                    : (isLeader ||
+                       canViewQuestions ||
+                       canPublish ||
+                       canStartNow ||
+                       canEditQuiz ||
+                       canEndEarly ||
+                       canRecalculate ||
+                       canToggleHide ||
+                       canDelete);
 
                   return (
                     <section
@@ -2061,7 +2064,7 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* Action Area: Card CTA + Kebab Menu */}
+                      {/* Action Area: Pinned to the far right on both desktop & mobile */}
                       <div
                         style={{
                           display: "flex",
@@ -2075,13 +2078,13 @@ export default function Home() {
                       >
                         {(isStudent || isLeader) &&
                           (attempt ? (
-                            z.result_visibility === "immediate" || z.results_published ? (
+                            z.result_visibility === "after_release" && !z.results_published ? (
+                              <span className="tag pending">Results pending</span>
+                            ) : isLive ? (
                               <button className="outline" onClick={() => showResult(z)}>
                                 Review answers
                               </button>
-                            ) : (
-                              <span className="tag pending">Results pending</span>
-                            )
+                            ) : null /* On closed quizzes, no outer button; it lives inside the kebab menu */
                           ) : isLive ? (
                             <button className="primary" onClick={() => openQuiz(z)}>
                               {hasDraft ? "Resume quiz" : "Start quiz"}
@@ -2098,7 +2101,6 @@ export default function Home() {
                             </button>
                           ))}
 
-                        {/* Update 3: Only "Attendees" rendered on card (No duplicate "End now" button) */}
                         {(isTeacher || isAdmin) && (
                           <button className="outline" onClick={() => openAttendees(z)}>
                             Attendees
@@ -2152,7 +2154,21 @@ export default function Home() {
                                   </button>
                                 )}
 
-                                {/* Update 5: View questions for all quiz statuses */}
+                                {/* Review answers in kebab menu for students & leaders on closed quizzes */}
+                                {canReviewAnswers && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      showResult(z);
+                                    }}
+                                  >
+                                    <Eye size={15} /> Review answers
+                                  </button>
+                                )}
+
+                                {/* View questions: Teachers and admins only */}
                                 {canViewQuestions && (
                                   <button
                                     className="plain"
@@ -2162,6 +2178,7 @@ export default function Home() {
                                     <Eye size={15} /> View questions
                                   </button>
                                 )}
+                                
 
                                 {/* Update 4: Start upcoming quiz now */}
                                 {canStartNow && (
