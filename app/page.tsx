@@ -22,12 +22,14 @@ import {
   Download,
   Search,
   AlertCircle,
-  HelpCircle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Play,
+  Edit,
+  Eye
 } from "lucide-react";
 import DutyCalendar from "./DutyCalendar";
-import QuizBuilder from "./QuizBuilder";
+import QuizBuilder, { QuizPayload } from "./QuizBuilder";
 
 const base = "https://dclxjishlusibfiedroo.supabase.co",
   key = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
@@ -354,6 +356,7 @@ export default function Home() {
     [quizBusy, setQuizBusy] = useState(false),
     [roles, setRoles] = useState<Record<string, string>>({});
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [editingQuiz, setEditingQuiz] = useState<any | null>(null);
   const [memberModal, setMemberModal] = useState(false);
   const [clock, setClock] = useState(Date.now());
 
@@ -362,22 +365,28 @@ export default function Home() {
   const autosaveTimerRef = useRef<any>(null);
   const token = session?.access_token || "";
 
-  // Step 2 States (Cards, Filters & Dropdown)
+  // Cards, Filters & Dropdown
   const [quizFilter, setQuizFilter] = useState<"all" | "live" | "upcoming" | "closed">("all");
   const [menuQuizId, setMenuQuizId] = useState<string | null>(null);
 
-  // Step 3 States (Attendees Modal)
+  // Attendees Modal
   const [attendeesData, setAttendeesData] = useState<any | null>(null);
   const [attendeeFilter, setAttendeeFilter] = useState<"all" | "submitted" | "in_progress" | "not_started">("all");
   const [attendeeSearch, setAttendeeSearch] = useState("");
 
-  // Step 4 States (Review Screen)
+  // Review Screen
   const [reviewFilter, setReviewFilter] = useState<"all" | "correct" | "wrong" | "skipped">("all");
 
-  // Step 5 States (End Quiz Early)
+  // End Quiz Early
   const [endQuizTarget, setEndQuizTarget] = useState<Quiz | null>(null);
   const [endQuizLoading, setEndQuizLoading] = useState(false);
   const [activeStudentCount, setActiveStudentCount] = useState<number | null>(null);
+
+  // Questions & Performance Item Analysis Modal
+  const [questionsModalQuiz, setQuestionsModalQuiz] = useState<Quiz | null>(null);
+  const [questionsModalData, setQuestionsModalData] = useState<any[]>([]);
+  const [questionsModalLoading, setQuestionsModalLoading] = useState(false);
+  const [questionsModalAttempts, setQuestionsModalAttempts] = useState<number>(0);
 
   const review = profile?.role === "super_admin" || profile?.role === "supervisor",
     manage = review || profile?.role === "student_leader",
@@ -489,7 +498,7 @@ export default function Home() {
     }
   }, [view, session, profile?.active, load]);
 
-  // Step 1: Auto-reopen quiz if refreshed during an active session
+  // Auto-reopen quiz if refreshed during an active session
   useEffect(() => {
     if (!session || !profile?.active || activeQuiz || !quizzes.length) return;
     try {
@@ -563,7 +572,7 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, [activeQuiz, deadline]);
 
-  // Step 1: Debounced Autosave Hook
+  // Debounced Autosave Hook
   useEffect(() => {
     if (!activeQuiz || !token || timerSubmitRef.current) return;
     try {
@@ -588,7 +597,7 @@ export default function Home() {
     };
   }, [answers, activeQuiz, token, remaining]);
 
-  // Step 1: Early-End Heartbeat (checks if quiz is ended early by teacher)
+  // Early-End Heartbeat
   useEffect(() => {
     if (!activeQuiz || !token) return;
     const poller = setInterval(async () => {
@@ -631,7 +640,7 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Step 2: Global click listener to close dropdown menu
+  // Global click listener to close dropdown menu
   useEffect(() => {
     if (!menuQuizId) return;
     const closeMenu = () => setMenuQuizId(null);
@@ -875,7 +884,7 @@ export default function Home() {
     }
   }
 
-  // Step 1: submitQuiz with storage cleanup
+  // submitQuiz with storage cleanup
   async function submitQuiz(auto = false) {
     if (!activeQuiz || quizBusy || timerSubmitRef.current) return;
     timerSubmitRef.current = true;
@@ -910,7 +919,7 @@ export default function Home() {
     if (activeQuiz && remaining === 0 && !quizBusy && !timerSubmitRef.current) submitQuiz(true);
   }, [remaining, activeQuiz, quizBusy]);
 
-  // Step 1: openQuiz with state restoration
+  // openQuiz with state restoration
   async function openQuiz(z: Quiz) {
     setError("");
     try {
@@ -979,7 +988,6 @@ export default function Home() {
     }
   }
 
-  // Step 2 & 4: Recalculate, Hide, Delete
   async function recalculateScores(z: Quiz) {
     setError("");
     try {
@@ -998,15 +1006,191 @@ export default function Home() {
     }
   }
 
+  // Update 1: Safe Cascade Deletion without Foreign Key Constraint Failures
   async function deleteQuizRecord(z: Quiz) {
     if (!confirm(`Are you sure you want to delete "${z.title}"? This cannot be undone.`)) return;
-    if (await change(route("quizzes", `id=eq.${z.id}`), null, "DELETE")) {
-      setQuizzes(old => old.filter(q => q.id !== z.id));
-      flash(`Deleted "${z.title}".`);
+    setError("");
+    try {
+      let deleted = false;
+      try {
+        await request("/rest/v1/rpc/delete_quiz_cascade", token, "POST", { p_quiz_id: z.id });
+        deleted = true;
+      } catch {
+        // Fallback: Delete children explicitly in relational sequence before deleting the quiz
+        await request(route("quiz_attempts", `quiz_id=eq.${z.id}`), token, "DELETE");
+        await request(route("quiz_attempt_starts", `quiz_id=eq.${z.id}`), token, "DELETE");
+        await request(route("quiz_questions", `quiz_id=eq.${z.id}`), token, "DELETE");
+        await request(route("quizzes", `id=eq.${z.id}`), token, "DELETE");
+        deleted = true;
+      }
+      if (deleted) {
+        setQuizzes(old => old.filter(q => q.id !== z.id));
+        flash(`Deleted "${z.title}".`);
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to delete quiz.");
     }
   }
 
-  // Step 3: Attendees Helpers
+  // Update 2: Open and Save Upcoming Quiz Edits
+  async function openEditQuiz(z: Quiz) {
+    setError("");
+    setMenuQuizId(null);
+    try {
+      const qRows = await request(
+        route("quiz_questions", `quiz_id=eq.${z.id}&select=question_id,position&order=position.asc`),
+        token
+      );
+      const questionIds = (qRows || []).map((r: any) => r.question_id);
+      setEditingQuiz({
+        id: z.id,
+        title: z.title,
+        kind: z.kind,
+        opens_at: z.opens_at,
+        closes_at: z.closes_at,
+        duration_minutes: z.duration_minutes,
+        result_visibility: z.result_visibility,
+        question_ids: questionIds
+      });
+      setBuilderOpen(true);
+    } catch (e: any) {
+      setError(e.message || "Failed to load quiz details for editing.");
+    }
+  }
+
+  async function updateQuiz(id: string, p: QuizPayload) {
+    setError("");
+    try {
+      await request(route("quizzes", `id=eq.${id}`), token, "PATCH", {
+        title: p.title,
+        kind: p.kind,
+        opens_at: new Date(p.opens).toISOString(),
+        closes_at: new Date(p.closes).toISOString(),
+        duration_minutes: p.duration,
+        result_visibility: p.visibility
+      });
+      // Replace questions
+      await request(route("quiz_questions", `quiz_id=eq.${id}`), token, "DELETE");
+      if (p.ids.length > 0) {
+        const rows = p.ids.map((qId, idx) => ({
+          quiz_id: id,
+          question_id: qId,
+          position: idx + 1
+        }));
+        await request(route("quiz_questions"), token, "POST", rows, "return=minimal");
+      }
+      if (session) await load(session);
+      flash("Quiz updated successfully.");
+      setEditingQuiz(null);
+      setBuilderOpen(false);
+    } catch (e: any) {
+      throw e;
+    }
+  }
+
+  // Update 4: Start Upcoming Quiz Now
+  async function startQuizNow(z: Quiz) {
+    if (!confirm(`Start "${z.title}" right now? It will become live immediately for students.`)) return;
+    setError("");
+    try {
+      const now = new Date();
+      const opens_at = now.toISOString();
+      const currentCloses = new Date(z.closes_at).getTime();
+      const minCloses = now.getTime() + z.duration_minutes * 60_000;
+      const closes_at = currentCloses < minCloses ? new Date(minCloses + 36e5).toISOString() : z.closes_at;
+
+      await request(route("quizzes", `id=eq.${z.id}`), token, "PATCH", {
+        opens_at,
+        closes_at
+      });
+      setQuizzes(old => old.map(q => (q.id === z.id ? { ...q, opens_at, closes_at } : q)));
+      flash(`"${z.title}" is now Live!`);
+      if (session) await load(session);
+    } catch (e: any) {
+      setError(e.message || "Failed to start quiz now.");
+    }
+  }
+
+  // Update 5: View Quiz Questions & Performance Item Analysis
+  async function openQuizQuestionsAnalysis(z: Quiz) {
+    setError("");
+    setMenuQuizId(null);
+    setQuestionsModalQuiz(z);
+    setQuestionsModalLoading(true);
+    setQuestionsModalData([]);
+    setQuestionsModalAttempts(0);
+    try {
+      const qqRows = await request(
+        route(
+          "quiz_questions",
+          `quiz_id=eq.${z.id}&select=position,question:questions(id,stem,topic,options,correct_index,explanation,source_url)&order=position.asc`
+        ),
+        token
+      );
+      const items = (qqRows || [])
+        .map((r: any) => ({
+          ...r.question,
+          position: r.position
+        }))
+        .filter((q: any) => Boolean(q && q.id));
+
+      const attemptsRows = await request(
+        route("quiz_attempts", `quiz_id=eq.${z.id}&status=eq.submitted&select=answers`),
+        token
+      );
+
+      const totalAttempts = (attemptsRows || []).length;
+      setQuestionsModalAttempts(totalAttempts);
+
+      const analyzed = items.map((q: any) => {
+        let correct = 0;
+        let wrong = 0;
+        let skipped = 0;
+        const optionPicks = [0, 0, 0, 0];
+
+        (attemptsRows || []).forEach((att: any) => {
+          const userAns = att.answers?.[q.id];
+          if (userAns === undefined || userAns === null || userAns === "") {
+            skipped++;
+          } else {
+            const idx = Number(userAns);
+            if (idx >= 0 && idx < 4) {
+              optionPicks[idx]++;
+            }
+            if (idx === q.correct_index) {
+              correct++;
+            } else {
+              wrong++;
+            }
+          }
+        });
+
+        const correctPct = totalAttempts > 0 ? Math.round((correct / totalAttempts) * 100) : 0;
+        const wrongPct = totalAttempts > 0 ? Math.round((wrong / totalAttempts) * 100) : 0;
+        const skippedPct = totalAttempts > 0 ? Math.round((skipped / totalAttempts) * 100) : 0;
+
+        return {
+          ...q,
+          correct,
+          wrong,
+          skipped,
+          correctPct,
+          wrongPct,
+          skippedPct,
+          optionPicks
+        };
+      });
+
+      setQuestionsModalData(analyzed);
+    } catch (e: any) {
+      setError(e.message || "Failed to load question analysis.");
+      setQuestionsModalQuiz(null);
+    } finally {
+      setQuestionsModalLoading(false);
+    }
+  }
+
+  // Attendees Helpers
   async function openAttendees(z: Quiz) {
     setError("");
     try {
@@ -1098,7 +1282,7 @@ export default function Home() {
     document.body.removeChild(link);
   }
 
-  // Step 5: End Quiz Early Handlers
+  // End Quiz Early Handlers
   async function triggerEndQuiz(z: Quiz) {
     setEndQuizTarget(z);
     setActiveStudentCount(null);
@@ -1130,7 +1314,7 @@ export default function Home() {
     }
   }
 
-  // Step 4: Topic performance analytics for UPSC review
+  // Topic performance analytics for UPSC review
   const topicStats = useMemo(() => {
     if (!selectedResult?.questions) return [];
     const map: Record<string, { total: number; correct: number }> = {};
@@ -1217,15 +1401,7 @@ export default function Home() {
     }
   }
 
-  async function createQuiz(p: {
-    title: string;
-    kind: string;
-    ids: string[];
-    opens: string;
-    closes: string;
-    duration: number;
-    visibility: string;
-  }) {
+  async function createQuiz(p: QuizPayload) {
     await request("/rest/v1/rpc/create_quiz_with_settings", token, "POST", {
       p_title: p.title,
       p_kind: p.kind,
@@ -1712,13 +1888,29 @@ export default function Home() {
             {review && (
               <div className="section-title">
                 <p>Create timed quizzes from approved questions.</p>
-                <button className="primary" onClick={() => setBuilderOpen(true)}>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setEditingQuiz(null);
+                    setBuilderOpen(true);
+                  }}
+                >
                   <Plus size={16} /> Create quiz
                 </button>
               </div>
             )}
             {builderOpen && review && (
-              <QuizBuilder questions={approved} memberName={memberName} onCreate={createQuiz} onClose={() => setBuilderOpen(false)} />
+              <QuizBuilder
+                questions={approved}
+                memberName={memberName}
+                onCreate={createQuiz}
+                onUpdate={updateQuiz}
+                onClose={() => {
+                  setBuilderOpen(false);
+                  setEditingQuiz(null);
+                }}
+                editingQuiz={editingQuiz}
+              />
             )}
 
             {/* Filter Chips */}
@@ -1795,6 +1987,27 @@ export default function Home() {
                   const hasDraft = !attempt && typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
+                  // Determine if this user role has actions available in the dropdown
+                  const canPublish = review && z.result_visibility === "after_release" && !z.results_published;
+                  const canViewQuestions = review;
+                  const canStartNow = (isTeacher || isAdmin) && isUpcoming;
+                  const canEditQuiz = (isTeacher || isAdmin) && isUpcoming;
+                  const canEndEarly = (isTeacher || isAdmin) && isLive;
+                  const canRecalculate = isAdmin;
+                  const canToggleHide = isAdmin;
+                  const canDelete = isAdmin || (isTeacher && isUpcoming);
+
+                  const hasDropdownActions =
+                    isLeader ||
+                    canPublish ||
+                    canViewQuestions ||
+                    canStartNow ||
+                    canEditQuiz ||
+                    canEndEarly ||
+                    canRecalculate ||
+                    canToggleHide ||
+                    canDelete;
+
                   return (
                     <section
                       key={z.id}
@@ -1840,7 +2053,7 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* Action Area: 1 Primary CTA + "⋯" Menu */}
+                      {/* Action Area: Single Primary CTA + Kebab Menu */}
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative" }}>
                         {(isStudent || isLeader) &&
                           (attempt ? (
@@ -1867,97 +2080,124 @@ export default function Home() {
                             </button>
                           ))}
 
+                        {/* Update 3: Only "Attendees" rendered on card (No duplicate "End now" button) */}
                         {(isTeacher || isAdmin) && (
-                          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                            <button className="outline" onClick={() => openAttendees(z)}>
-                              Attendees
-                            </button>
-                            {isLive && (
-                              <button
-                                className="danger-outline"
-                                style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                                onClick={() => triggerEndQuiz(z)}
-                              >
-                                End now
-                              </button>
-                            )}
-                          </div>
+                          <button className="outline" onClick={() => openAttendees(z)}>
+                            Attendees
+                          </button>
                         )}
 
-                        {/* "⋯" Dropdown Trigger */}
-                        <div style={{ position: "relative" }}>
-                          <button
-                            className="outline"
-                            style={{ padding: "8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
-                            aria-label="More quiz actions"
-                            onClick={e => {
-                              e.stopPropagation();
-                              setMenuQuizId(menuQuizId === z.id ? null : z.id);
-                            }}
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-
-                          {/* Dropdown Popup */}
-                          {menuQuizId === z.id && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                right: 0,
-                                top: "calc(100% + 4px)",
-                                background: "var(--surface,#ffffff)",
-                                border: "1px solid var(--border,#e2e8f0)",
-                                borderRadius: "8px",
-                                boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
-                                minWidth: "180px",
-                                zIndex: 60,
-                                overflow: "hidden",
-                                display: "flex",
-                                flexDirection: "column"
+                        {/* Kebab menu rendered strictly if there are actionable items */}
+                        {hasDropdownActions && (
+                          <div style={{ position: "relative" }}>
+                            <button
+                              className="outline"
+                              style={{ padding: "8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                              aria-label="More quiz actions"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setMenuQuizId(menuQuizId === z.id ? null : z.id);
                               }}
-                              onClick={e => e.stopPropagation()}
                             >
-                              {isLeader && (
-                                <button
-                                  className="plain"
-                                  style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
-                                  onClick={() => {
-                                    setMenuQuizId(null);
-                                    openAttendees(z);
-                                  }}
-                                >
-                                  Attendees list
-                                </button>
-                              )}
+                              <MoreVertical size={16} />
+                            </button>
 
-                              {review && z.result_visibility === "after_release" && !z.results_published && (
-                                <button
-                                  className="plain"
-                                  style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
-                                  onClick={() => {
-                                    setMenuQuizId(null);
-                                    publishResults(z);
-                                  }}
-                                >
-                                  Publish results
-                                </button>
-                              )}
+                            {/* Dropdown Popup */}
+                            {menuQuizId === z.id && (
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  right: 0,
+                                  top: "calc(100% + 4px)",
+                                  background: "var(--surface,#ffffff)",
+                                  border: "1px solid var(--border,#e2e8f0)",
+                                  borderRadius: "8px",
+                                  boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+                                  minWidth: "190px",
+                                  zIndex: 60,
+                                  overflow: "hidden",
+                                  display: "flex",
+                                  flexDirection: "column"
+                                }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                {isLeader && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      openAttendees(z);
+                                    }}
+                                  >
+                                    Attendees list
+                                  </button>
+                                )}
 
-                              {(isTeacher || isAdmin) && isLive && (
-                                <button
-                                  className="plain"
-                                  style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
-                                  onClick={() => {
-                                    setMenuQuizId(null);
-                                    triggerEndQuiz(z);
-                                  }}
-                                >
-                                  End quiz early
-                                </button>
-                              )}
+                                {/* Update 5: View questions for all quiz statuses */}
+                                {canViewQuestions && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    onClick={() => openQuizQuestionsAnalysis(z)}
+                                  >
+                                    <Eye size={15} /> View questions
+                                  </button>
+                                )}
 
-                              {isAdmin && (
-                                <>
+                                {/* Update 4: Start upcoming quiz now */}
+                                {canStartNow && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#10b981", display: "flex", alignItems: "center", gap: "8px" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      startQuizNow(z);
+                                    }}
+                                  >
+                                    <Play size={15} /> Start now
+                                  </button>
+                                )}
+
+                                {/* Update 2: Edit upcoming quiz */}
+                                {canEditQuiz && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    onClick={() => openEditQuiz(z)}
+                                  >
+                                    <Edit size={15} /> Edit quiz
+                                  </button>
+                                )}
+
+                                {canPublish && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      publishResults(z);
+                                    }}
+                                  >
+                                    Publish results
+                                  </button>
+                                )}
+
+                                {/* Update 3: End quiz early lives exclusively in kebab menu */}
+                                {canEndEarly && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      triggerEndQuiz(z);
+                                    }}
+                                  >
+                                    End quiz early
+                                  </button>
+                                )}
+
+                                {canRecalculate && (
                                   <button
                                     className="plain"
                                     style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
@@ -1968,6 +2208,9 @@ export default function Home() {
                                   >
                                     Recalculate scores
                                   </button>
+                                )}
+
+                                {canToggleHide && (
                                   <button
                                     className="plain"
                                     style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
@@ -1978,24 +2221,25 @@ export default function Home() {
                                   >
                                     {isHidden ? "Show to students" : "Hide from students"}
                                   </button>
-                                </>
-                              )}
+                                )}
 
-                              {(isAdmin || (isTeacher && isUpcoming)) && (
-                                <button
-                                  className="plain"
-                                  style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
-                                  onClick={() => {
-                                    setMenuQuizId(null);
-                                    deleteQuizRecord(z);
-                                  }}
-                                >
-                                  Delete quiz
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                                {/* Update 1: Foreign-key safe delete */}
+                                {canDelete && (
+                                  <button
+                                    className="plain"
+                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
+                                    onClick={() => {
+                                      setMenuQuizId(null);
+                                      deleteQuizRecord(z);
+                                    }}
+                                  >
+                                    Delete quiz
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </section>
                   );
@@ -2003,7 +2247,7 @@ export default function Home() {
               {!quizzes.length && <Empty text="No quizzes have been published." />}
             </div>
 
-            {/* Step 3: Attendees Modal */}
+            {/* Attendees Modal */}
             {attendeesData && attendanceQuiz && manage && (
               <div
                 className="modal-backdrop"
@@ -2175,7 +2419,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Step 5: End Quiz Early Confirm Dialog */}
+            {/* End Quiz Early Confirm Dialog */}
             {endQuizTarget && (
               <div
                 className="modal-backdrop"
@@ -2228,7 +2472,176 @@ export default function Home() {
               </div>
             )}
 
-            {/* Step 4: Full-Screen Student Review Screen */}
+            {/* Update 5: Questions & Performance Item Analysis Modal */}
+            {questionsModalQuiz && (
+              <div
+                className="modal-backdrop"
+                onMouseDown={e => {
+                  if (e.target === e.currentTarget) {
+                    setQuestionsModalQuiz(null);
+                    setQuestionsModalData([]);
+                  }
+                }}
+              >
+                <section
+                  className="modal form-card"
+                  role="dialog"
+                  aria-modal="true"
+                  style={{ maxWidth: "860px", width: "96%", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
+                >
+                  <div className="modal-head">
+                    <div>
+                      <span className="eyebrow">QUESTION BREAKDOWN & ITEM ANALYSIS</span>
+                      <h2>{questionsModalQuiz.title}</h2>
+                    </div>
+                    <button
+                      className="icon-button"
+                      aria-label="Close"
+                      onClick={() => {
+                        setQuestionsModalQuiz(null);
+                        setQuestionsModalData([]);
+                      }}
+                    >
+                      <X />
+                    </button>
+                  </div>
+
+                  <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                    {questionsModalLoading ? (
+                      <div className="empty">Loading question analysis…</div>
+                    ) : (
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px" }}>
+                          <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                            <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Total Questions</span>
+                            <strong style={{ fontSize: "20px", display: "block" }}>{questionsModalData.length}</strong>
+                          </article>
+                          <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                            <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Students Submitted</span>
+                            <strong style={{ fontSize: "20px", display: "block", color: "#10b981" }}>{questionsModalAttempts}</strong>
+                          </article>
+                          <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                            <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Overall Accuracy</span>
+                            <strong style={{ fontSize: "20px", display: "block", color: "#3b82f6" }}>
+                              {questionsModalAttempts > 0 && questionsModalData.length > 0
+                                ? Math.round(
+                                    (questionsModalData.reduce((acc, q) => acc + q.correct, 0) /
+                                      (questionsModalAttempts * questionsModalData.length)) *
+                                      100
+                                  ) + "%"
+                                : "N/A"}
+                            </strong>
+                          </article>
+                        </div>
+
+                        {questionsModalAttempts === 0 && (
+                          <div className="card" style={{ padding: "12px", background: "#f8fafc", margin: 0 }}>
+                            <small style={{ color: "var(--muted-fg,#64748b)" }}>
+                              No students have submitted attempts for this quiz yet. Showing questions and answer key below.
+                            </small>
+                          </div>
+                        )}
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                          {questionsModalData.map((q: any, i: number) => (
+                            <article
+                              key={q.id || i}
+                              className="card"
+                              style={{ padding: "16px", margin: 0, borderLeft: "4px solid var(--accent, #3b82f6)" }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
+                                <div>
+                                  <span className="eyebrow" style={{ fontSize: "11px" }}>
+                                    QUESTION {i + 1} · {q.topic}
+                                  </span>
+                                  <h4 style={{ margin: "4px 0 0 0", fontSize: "15px", fontWeight: 600 }}>{q.stem}</h4>
+                                </div>
+                                {questionsModalAttempts > 0 && (
+                                  <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                                    <span className="tag approved" title="Correct">
+                                      {q.correct} correct ({q.correctPct}%)
+                                    </span>
+                                    <span className="tag revision_requested" title="Wrong">
+                                      {q.wrong} wrong ({q.wrongPct}%)
+                                    </span>
+                                    {q.skipped > 0 && (
+                                      <span className="tag pending" title="Skipped">
+                                        {q.skipped} skipped
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {questionsModalAttempts > 0 && (
+                                <div style={{ width: "100%", height: "6px", background: "#fee2e2", borderRadius: "3px", overflow: "hidden", margin: "8px 0 12px 0", display: "flex" }}>
+                                  <div
+                                    style={{ width: `${q.correctPct}%`, background: "#10b981", transition: "width 0.3s" }}
+                                    title={`Correct: ${q.correctPct}%`}
+                                  />
+                                  <div
+                                    style={{ width: `${q.skippedPct}%`, background: "#94a3b8", transition: "width 0.3s" }}
+                                    title={`Skipped: ${q.skippedPct}%`}
+                                  />
+                                </div>
+                              )}
+
+                              <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "10px 0" }}>
+                                {(q.options || []).map((opt: string, optIdx: number) => {
+                                  const isCorrect = optIdx === q.correct_index;
+                                  const pickCount = q.optionPicks ? q.optionPicks[optIdx] : 0;
+                                  const pickPct = questionsModalAttempts > 0 ? Math.round((pickCount / questionsModalAttempts) * 100) : 0;
+
+                                  return (
+                                    <div
+                                      key={optIdx}
+                                      style={{
+                                        padding: "8px 12px",
+                                        borderRadius: "6px",
+                                        fontSize: "13px",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        border: isCorrect ? "1px solid #10b981" : "1px solid var(--border,#e2e8f0)",
+                                        background: isCorrect ? "#f0fdf4" : "transparent"
+                                      }}
+                                    >
+                                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                        <b>{"ABCD"[optIdx]}.</b>
+                                        <span>{opt}</span>
+                                        {isCorrect && (
+                                          <span style={{ color: "#10b981", fontWeight: 600, fontSize: "11px", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                                            <CheckCircle size={13} /> Correct Answer
+                                          </span>
+                                        )}
+                                      </span>
+                                      {questionsModalAttempts > 0 && (
+                                        <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)", fontWeight: 500 }}>
+                                          {pickCount} students ({pickPct}%)
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {q.explanation && (
+                                <p style={{ fontSize: "12px", background: "#f8fafc", padding: "8px 12px", borderRadius: "6px", margin: "6px 0" }}>
+                                  <b>Explanation:</b> {q.explanation}
+                                </p>
+                              )}
+                              <Source value={q.source_url} />
+                            </article>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* Student Review Modal */}
             {selectedResult && (
               <div
                 className="modal-backdrop"
@@ -2253,7 +2666,6 @@ export default function Home() {
                   </div>
 
                   <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "18px" }}>
-                    {/* Score Analytics Hero */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" }}>
                       <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center", background: "#f8fafc" }}>
                         <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Final Score</span>
@@ -2284,7 +2696,6 @@ export default function Home() {
                       </article>
                     </div>
 
-                    {/* UPSC Subject / Topic Breakdown */}
                     {topicStats.length > 0 && (
                       <div className="card" style={{ padding: "14px", margin: 0, background: "var(--surface,#fff)" }}>
                         <strong style={{ fontSize: "13px", display: "block", marginBottom: "8px" }}>Topic-Wise Accuracy (UPSC Revision)</strong>
@@ -2312,7 +2723,6 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Question Filter Chips */}
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                       {[
                         { id: "all", label: "All Questions", count: selectedResult.questions.length },
@@ -2343,7 +2753,6 @@ export default function Home() {
                       ))}
                     </div>
 
-                    {/* Question Reviews */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                       {selectedResult.questions
                         .filter((q: any) => {
@@ -2439,7 +2848,10 @@ export default function Home() {
             {profile.role === "super_admin" && (
               <div className="section-title">
                 <p>Add accounts directly, or approve sign-ups below.</p>
-                <button className="primary" onClick={() => setMemberModal(true)}>
+                <button
+                  className="primary"
+                  onClick={() => setMemberModal(true)}
+                >
                   <Plus size={16} /> Add member
                 </button>
               </div>
@@ -2780,7 +3192,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Active Quiz Taking Screen with Autosave */}
+      {/* Active Quiz Screen with Autosave */}
       {activeQuiz && (
         <div className="quiz-portal">
           <header className="portal-header">
