@@ -2331,8 +2331,7 @@ export default function Home() {
                     </section>
                   );
                 })}
-              {!quizzes.length && <Empty text="No quizzes have been published." />}
-            </div>
+              
               {!quizzes.length && <Empty text="No quizzes have been published." />}
             </div>
 
