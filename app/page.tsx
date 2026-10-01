@@ -1987,11 +1987,10 @@ export default function Home() {
                   const hasDraft = !attempt && typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
-                  // Determine if this user role has actions available in the dropdown
+                  // What actions are available
                   const canPublish = review && z.result_visibility === "after_release" && !z.results_published;
-                  // Teachers and admins only for viewing question analytics
+                  const canViewAttendees = isTeacher || isAdmin || isLeader;
                   const canViewQuestions = review;
-                  // Review answers belongs inside the kebab menu when closed
                   const canReviewAnswers =
                     (isStudent || isLeader) &&
                     isClosed &&
@@ -2004,11 +2003,12 @@ export default function Home() {
                   const canToggleHide = isAdmin;
                   const canDelete = isAdmin || (isTeacher && isUpcoming);
 
-                  // Regular students NEVER see kebab on Live or Upcoming quizzes.
-                  // On Closed quizzes, regular students only see kebab if they can Review Answers.
+                  // Kebab menu visibility rules:
+                  // 1. Regular students: ONLY visible on Closed quizzes when they can review answers (hidden on Live & Upcoming)
+                  // 2. Teachers / Admins / Leaders: always visible (e.g. Attendees, Edit, End early)
                   const hasDropdownActions = isStudent
                     ? (isClosed && canReviewAnswers)
-                    : (isLeader ||
+                    : (canViewAttendees ||
                        canViewQuestions ||
                        canPublish ||
                        canStartNow ||
@@ -2064,7 +2064,7 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* Action Area: Pinned to the far right on both desktop & mobile */}
+                      {/* Action Area: Pinned to the far right on both desktop and mobile */}
                       <div
                         style={{
                           display: "flex",
@@ -2076,6 +2076,7 @@ export default function Home() {
                           flexShrink: 0
                         }}
                       >
+                        {/* Student Primary Card Button (Start/Resume on live, countdown on upcoming) */}
                         {(isStudent || isLeader) &&
                           (attempt ? (
                             z.result_visibility === "after_release" && !z.results_published ? (
@@ -2084,7 +2085,7 @@ export default function Home() {
                               <button className="outline" onClick={() => showResult(z)}>
                                 Review answers
                               </button>
-                            ) : null /* On closed quizzes, no outer button; it lives inside the kebab menu */
+                            ) : null /* On closed quizzes, review is inside kebab menu */
                           ) : isLive ? (
                             <button className="primary" onClick={() => openQuiz(z)}>
                               {hasDraft ? "Resume quiz" : "Start quiz"}
@@ -2101,18 +2102,18 @@ export default function Home() {
                             </button>
                           ))}
 
-                        {(isTeacher || isAdmin) && (
-                          <button className="outline" onClick={() => openAttendees(z)}>
-                            Attendees
-                          </button>
-                        )}
-
-                        {/* Kebab menu rendered strictly if there are actionable items */}
+                        {/* Kebab [ ⋮ ] Menu */}
                         {hasDropdownActions && (
                           <div style={{ position: "relative" }}>
                             <button
                               className="outline"
-                              style={{ padding: "8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                              style={{
+                                padding: "8px",
+                                borderRadius: "6px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center"
+                              }}
                               aria-label="More quiz actions"
                               onClick={e => {
                                 e.stopPropagation();
@@ -2141,24 +2142,41 @@ export default function Home() {
                                 }}
                                 onClick={e => e.stopPropagation()}
                               >
-                                {isLeader && (
+                                {/* Attendees action inside kebab menu for Teacher, Admin, and Leader */}
+                                {canViewAttendees && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
                                     onClick={() => {
                                       setMenuQuizId(null);
                                       openAttendees(z);
                                     }}
                                   >
-                                    Attendees list
+                                    <Users size={15} /> Attendees
                                   </button>
                                 )}
 
-                                {/* Review answers in kebab menu for students & leaders on closed quizzes */}
+                                {/* Review answers in kebab menu on closed quizzes for students/leaders */}
                                 {canReviewAnswers && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
                                     onClick={() => {
                                       setMenuQuizId(null);
                                       showResult(z);
@@ -2168,23 +2186,39 @@ export default function Home() {
                                   </button>
                                 )}
 
-                                {/* View questions: Teachers and admins only */}
+                                {/* View questions for Teachers and Admins */}
                                 {canViewQuestions && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
                                     onClick={() => openQuizQuestionsAnalysis(z)}
                                   >
                                     <Eye size={15} /> View questions
                                   </button>
                                 )}
-                                
 
-                                {/* Update 4: Start upcoming quiz now */}
+                                {/* Start upcoming quiz now */}
                                 {canStartNow && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#10b981", display: "flex", alignItems: "center", gap: "8px" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      color: "#10b981",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
                                     onClick={() => {
                                       setMenuQuizId(null);
                                       startQuizNow(z);
@@ -2194,11 +2228,19 @@ export default function Home() {
                                   </button>
                                 )}
 
-                                {/* Update 2: Edit upcoming quiz */}
+                                {/* Edit upcoming quiz */}
                                 {canEditQuiz && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
                                     onClick={() => openEditQuiz(z)}
                                   >
                                     <Edit size={15} /> Edit quiz
@@ -2218,11 +2260,16 @@ export default function Home() {
                                   </button>
                                 )}
 
-                                {/* Update 3: End quiz early lives exclusively in kebab menu */}
                                 {canEndEarly && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      color: "#ef4444"
+                                    }}
                                     onClick={() => {
                                       setMenuQuizId(null);
                                       triggerEndQuiz(z);
@@ -2258,11 +2305,16 @@ export default function Home() {
                                   </button>
                                 )}
 
-                                {/* Update 1: Foreign-key safe delete */}
                                 {canDelete && (
                                   <button
                                     className="plain"
-                                    style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      color: "#ef4444"
+                                    }}
                                     onClick={() => {
                                       setMenuQuizId(null);
                                       deleteQuizRecord(z);
@@ -2279,6 +2331,8 @@ export default function Home() {
                     </section>
                   );
                 })}
+              {!quizzes.length && <Empty text="No quizzes have been published." />}
+            </div>
               {!quizzes.length && <Empty text="No quizzes have been published." />}
             </div>
 
