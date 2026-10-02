@@ -155,39 +155,286 @@ export function BulkAssign({ people, duties, rotation, api, flash, fail, refresh
   </div>;
 }
 
-/* ---------------- Student / leader availability ---------------- */
-export function MyAvailability({ profile, duties, today, api, flash, fail }: { profile: { id: string }; duties: any[]; today: string; api: Api; flash: (s: string) => void; fail: (s: string) => void }) {
-  const apiRef = useRef(api); apiRef.current = api;
-  const [date, setDate] = useState(shiftDay(today, 1)), [status, setStatus] = useState("leave"), [note, setNote] = useState("");
-  const [rows, setRows] = useState<any[]>([]), [busy, setBusy] = useState(false);
-  const load = async () => {
-    try { const r = await apiRef.current(`/rest/v1/duty_availability?select=availability_date,status,note&profile_id=eq.${profile.id}&availability_date=gte.${today}&status=neq.available&order=availability_date.asc&limit=60`); setRows(r || []) }
-    catch { setRows([]) }
-  };
-  useEffect(() => { load() }, [profile.id, today]); // eslint-disable-line react-hooks/exhaustive-deps
+/* ---------------- Student / leader availability modal & component ---------------- */
+export function ReportLeaveModal({
+  profile,
+  duties,
+  today,
+  api,
+  flash,
+  fail,
+  onClose,
+  onChanged
+}: {
+  profile: { id: string };
+  duties: any[];
+  today: string;
+  api: Api;
+  flash: (s: string) => void;
+  fail: (s: string) => void;
+  onClose: () => void;
+  onChanged?: () => void;
+}) {
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const [fromDate, setFromDate] = useState(shiftDay(today, 1));
+  const [toDate, setToDate] = useState("");
+  const [status, setStatus] = useState<"leave" | "unavailable">("leave");
+  const [note, setNote] = useState("");
+  const [rows, setRows] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  async function save(nextStatus: string, forDate: string, forNote: string) {
-    if (!forDate || forDate < today) { fail("Choose today or a future date."); return }
-    if (nextStatus !== "available" && duties.some(d => d.student_id === profile.id && d.duty_date === forDate)) { fail("You already have a duty on that date. Open it and use Request change instead."); return }
+  const load = async () => {
+    try {
+      const r = await apiRef.current(
+        `/rest/v1/duty_availability?select=availability_date,status,note&profile_id=eq.${profile.id}&availability_date=gte.${today}&status=neq.available&order=availability_date.asc&limit=100`
+      );
+      setRows(r || []);
+    } catch {
+      setRows([]);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [profile.id, today]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+
+  const generateDateRange = (start: string, end?: string): string[] => {
+    if (!end || end === start) return [start];
+    const dates: string[] = [];
+    let cur = start;
+    let guard = 0;
+    while (cur <= end && guard < 35) {
+      dates.push(cur);
+      cur = shiftDay(cur, 1);
+      guard++;
+    }
+    return dates;
+  };
+
+  async function handleSave() {
+    if (!fromDate) {
+      fail("Please pick a start date.");
+      return;
+    }
+    if (fromDate < today) {
+      fail("Start date cannot be in the past.");
+      return;
+    }
+    if (toDate && toDate < fromDate) {
+      fail("End date must be on or after start date.");
+      return;
+    }
+
+    const range = generateDateRange(fromDate, toDate);
+    if (range.length > 31) {
+      fail("Leave duration cannot exceed 31 days in a single submission.");
+      return;
+    }
+
+    // Check conflict with duties assigned to the current user
+    for (const d of range) {
+      const conflict = duties.find(x => x.student_id === profile.id && x.duty_date === d);
+      if (conflict) {
+        fail(`You already have a duty on ${dayLabel(d)}. Use "Request change" on that duty instead.`);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
-      await apiRef.current("/rest/v1/duty_availability", "POST", { profile_id: profile.id, availability_date: forDate, status: nextStatus, note: forNote.trim() || null }, "resolution=merge-duplicates,return=minimal");
-      flash(nextStatus === "available" ? "Marked available again." : "Saved. You will not be picked for that day.");
-      if (nextStatus !== "available") setNote("");
+      const payload = range.map(d => ({
+        profile_id: profile.id,
+        availability_date: d,
+        status,
+        note: note.trim() || null
+      }));
+
+      await apiRef.current(
+        "/rest/v1/duty_availability",
+        "POST",
+        payload,
+        "resolution=merge-duplicates,return=minimal"
+      );
+
+      flash(range.length === 1 ? `Leave recorded for ${dayLabel(fromDate)}.` : `${range.length} days of leave recorded.`);
+      setNote("");
+      setToDate("");
       await load();
-    } catch (e: any) { fail(e?.message || "Could not save") } finally { setBusy(false) }
+      if (onChanged) onChanged();
+    } catch (e: any) {
+      fail(e?.message || "Could not record leave.");
+    } finally {
+      setBusy(false);
+    }
   }
-  return <section className="card av">
-    <h3>My availability</h3>
-    <p>Away on a day? Mark it here and you won't be picked for that duty.</p>
-    <div className="av-form">
-      <label>Date<input type="date" min={today} value={date} onChange={e => setDate(e.target.value)} /></label>
-      <label>Status<select value={status} onChange={e => setStatus(e.target.value)}><option value="leave">On leave</option><option value="unavailable">Unavailable</option></select></label>
-      <label>Note (optional)<input value={note} maxLength={120} onChange={e => setNote(e.target.value)} placeholder="e.g. exam, travel" /></label>
-      <button className="primary" disabled={busy || !date} onClick={() => save(status, date, note)}>{busy ? "Saving…" : "Save"}</button>
+
+  async function handleRemove(d: string) {
+    setBusy(true);
+    try {
+      try {
+        await apiRef.current(
+          `/rest/v1/duty_availability?profile_id=eq.${profile.id}&availability_date=eq.${d}`,
+          "DELETE"
+        );
+      } catch {
+        await apiRef.current(
+          "/rest/v1/duty_availability",
+          "POST",
+          { profile_id: profile.id, availability_date: d, status: "available", note: null },
+          "resolution=merge-duplicates,return=minimal"
+        );
+      }
+      flash(`Removed leave for ${dayLabel(d)}.`);
+      await load();
+      if (onChanged) onChanged();
+    } catch (e: any) {
+      fail(e?.message || "Could not remove leave.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={e => {
+        if (e.target === e.currentTarget && !busy) onClose();
+      }}
+    >
+      <section
+        className="modal form-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-modal-title"
+        style={{ maxWidth: "540px", width: "95%" }}
+      >
+        <div className="modal-head">
+          <div>
+            <span className="eyebrow">DUTY ROTATION AVAILABILITY</span>
+            <h2 id="leave-modal-title">Report leave</h2>
+          </div>
+          <button className="icon-button" aria-label="Close" onClick={onClose} disabled={busy}>
+            <X />
+          </button>
+        </div>
+
+        <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: "var(--muted-fg, #64748b)" }}>
+            Mark your upcoming time off. You will not be scheduled for questions on these dates.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+              From date
+              <input
+                type="date"
+                min={today}
+                value={fromDate}
+                onChange={e => setFromDate(e.target.value)}
+                style={{ width: "100%", padding: "9px 11px", borderRadius: "8px", border: "1px solid #d5deea" }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+              To date (optional)
+              <input
+                type="date"
+                min={fromDate || today}
+                value={toDate}
+                onChange={e => setToDate(e.target.value)}
+                style={{ width: "100%", padding: "9px 11px", borderRadius: "8px", border: "1px solid #d5deea" }}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+              Status
+              <select
+                value={status}
+                onChange={e => setStatus(e.target.value as any)}
+                style={{ width: "100%", padding: "9px 11px", borderRadius: "8px", border: "1px solid #d5deea" }}
+              >
+                <option value="leave">On leave</option>
+                <option value="unavailable">Unavailable</option>
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+              Reason / note (optional)
+              <input
+                type="text"
+                maxLength={100}
+                placeholder="e.g. Travel, UPSC test"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                style={{ width: "100%", padding: "9px 11px", borderRadius: "8px", border: "1px solid #d5deea" }}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <button className="primary" disabled={busy || !fromDate} onClick={handleSave}>
+              {busy ? "Saving…" : "Save leave"}
+            </button>
+          </div>
+
+          <hr style={{ margin: "10px 0 0 0", border: 0, borderTop: "1px solid #e2e8f0" }} />
+
+          <div>
+            <strong style={{ fontSize: "14px", display: "block", marginBottom: "8px" }}>
+              Upcoming leave days ({rows.length})
+            </strong>
+            {rows.length === 0 ? (
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>You have no upcoming leave reported.</p>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "6px", maxHeight: "200px", overflowY: "auto" }}>
+                {rows.map(r => (
+                  <li
+                    key={r.availability_date}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      fontSize: "13px"
+                    }}
+                  >
+                    <span>
+                      <b>{dayLabel(r.availability_date)}</b> · {r.status === "leave" ? "On leave" : "Unavailable"}
+                      {r.note && <span style={{ color: "#64748b" }}> ({r.note})</span>}
+                    </span>
+                    <button
+                      className="plain"
+                      style={{ color: "#ef4444", padding: "4px 8px", fontSize: "12px" }}
+                      disabled={busy}
+                      onClick={() => handleRemove(r.availability_date)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
-    {rows.length > 0 && <ul className="av-list">{rows.map(r => <li key={r.availability_date}><span><b>{dayLabel(r.availability_date)}</b> · {r.status === "leave" ? "On leave" : "Unavailable"}{r.note ? ` · ${r.note}` : ""}</span><button className="plain" disabled={busy} onClick={() => save("available", r.availability_date, "")}>Remove</button></li>)}</ul>}
-  </section>;
+  );
+}
+
+export function MyAvailability(p: { profile: { id: string }; duties: any[]; today: string; api: Api; flash: (s: string) => void; fail: (s: string) => void }) {
+  return null;
 }
 
 /* ---------------- Duty history (staff) ---------------- */
@@ -220,54 +467,227 @@ export function DutyHistory({ dutyId, api, people }: { dutyId: string; api: Api;
 
 /* ---------------- Questions that count for a duty ---------------- */
 const qLabel: Record<string, string> = { approved: "Approved", pending: "Waiting for review", revision_requested: "Needs revision" };
-export function DutyQuestions({ duty, mine, manage, target, signal, api, flash, fail, refresh, onAdd }: {
-  duty: { id: string; duty_status?: string }; mine: boolean; manage: boolean; target: number; signal: string; api: Api;
-  flash: (s: string) => void; fail: (s: string) => void; refresh: () => Promise<void>; onAdd: () => void;
-}) {
-  const apiRef = useRef(api); apiRef.current = api;
-  const [rows, setRows] = useState<any[] | null>(null), [pool, setPool] = useState<any[] | null>(null);
-  const [open, setOpen] = useState(false), [pick, setPick] = useState<Set<string>>(new Set()), [busy, setBusy] = useState(false);
-  const loadLinked = async () => { try { setRows((await apiRef.current("/rest/v1/rpc/get_duty_questions", "POST", { p_duty_id: duty.id })) || []) } catch { setRows([]) } };
-  const loadPool = async () => { try { setPool((await apiRef.current("/rest/v1/rpc/get_my_unlinked_questions", "POST", {})) || []) } catch { setPool([]) } };
-  useEffect(() => { loadLinked() }, [duty.id, signal]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open) loadPool() }, [open, signal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const have = rows?.length ?? 0, remaining = Math.max(0, target - have);
+export function DutyQuestions({
+  duty,
+  mine,
+  manage,
+  review = false,
+  counts,
+  target,
+  signal,
+  api,
+  flash,
+  fail,
+  refresh,
+  onAdd
+}: {
+  duty: { id: string; duty_status?: string };
+  mine: boolean;
+  manage: boolean;
+  review?: boolean;
+  counts?: { uploaded: number; approved: number; waiting: number };
+  target: number;
+  signal: string;
+  api: Api;
+  flash: (s: string) => void;
+  fail: (s: string) => void;
+  refresh: () => Promise<void>;
+  onAdd: () => void;
+}) {
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [pool, setPool] = useState<any[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  // Preference for hiding question list (admin and teacher only)
+  const [hidden, setHidden] = useState<boolean>(() => {
+    if (mine) return false;
+    try {
+      return localStorage.getItem("civicprep_duty_questions_hidden") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleHidden = () => {
+    setHidden(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem("civicprep_duty_questions_hidden", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const loadLinked = async () => {
+    try {
+      setRows((await apiRef.current("/rest/v1/rpc/get_duty_questions", "POST", { p_duty_id: duty.id })) || []);
+    } catch {
+      setRows([]);
+    }
+  };
+
+  const loadPool = async () => {
+    try {
+      setPool((await apiRef.current("/rest/v1/rpc/get_my_unlinked_questions", "POST", {})) || []);
+    } catch {
+      setPool([]);
+    }
+  };
+
+  // Do not fetch question list while hidden (unless viewing own duty)
+  useEffect(() => {
+    if (hidden && !mine) return;
+    loadLinked();
+  }, [duty.id, signal, hidden, mine]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (open && mine) loadPool();
+  }, [open, signal, mine]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const have = rows?.length ?? 0;
+  const remaining = Math.max(0, target - have);
   const canEdit = (mine || manage) && !(duty.duty_status === "reviewed" && !manage);
   const tagClass = (s: string) => `tag ${s === "pending" ? "pending" : s === "revision_requested" ? "revision_requested" : ""}`;
-  const reloadAll = async () => { await Promise.all([loadLinked(), open ? loadPool() : Promise.resolve(), refresh()]) };
+  const reloadAll = async () => {
+    await Promise.all([loadLinked(), open ? loadPool() : Promise.resolve(), refresh()]);
+  };
 
   async function attach() {
     if (!pick.size) return;
     setBusy(true);
     try {
-      const n = await apiRef.current("/rest/v1/rpc/attach_questions_to_duty", "POST", { p_duty_id: duty.id, p_question_ids: Array.from(pick) });
-      flash(`${n} question${n === 1 ? "" : "s"} added to this duty.`); setPick(new Set()); await reloadAll();
-    } catch (e: any) { fail(e?.message || "Could not add the questions") } finally { setBusy(false) }
+      const n = await apiRef.current("/rest/v1/rpc/attach_questions_to_duty", "POST", {
+        p_duty_id: duty.id,
+        p_question_ids: Array.from(pick)
+      });
+      flash(`${n} question${n === 1 ? "" : "s"} added to this duty.`);
+      setPick(new Set());
+      await reloadAll();
+    } catch (e: any) {
+      fail(e?.message || "Could not add the questions");
+    } finally {
+      setBusy(false);
+    }
   }
+
   async function detach(id: string) {
     setBusy(true);
-    try { await apiRef.current("/rest/v1/rpc/detach_question_from_duty", "POST", { p_question_id: id }); flash("Question removed from this duty."); await reloadAll() }
-    catch (e: any) { fail(e?.message || "Could not remove the question") } finally { setBusy(false) }
+    try {
+      await apiRef.current("/rest/v1/rpc/detach_question_from_duty", "POST", { p_question_id: id });
+      flash("Question removed from this duty.");
+      await reloadAll();
+    } catch (e: any) {
+      fail(e?.message || "Could not remove the question");
+    } finally {
+      setBusy(false);
+    }
   }
-  const toggle = (id: string) => setPick(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n });
 
-  return <div className="dq">
-    <div className="dq-head"><strong>Questions for this duty</strong>
-      {mine && canEdit && remaining > 0 && <div className="actions"><button className="primary" onClick={onAdd}>Add questions</button><button className="outline" onClick={() => setOpen(o => !o)}>{open ? "Hide earlier questions" : "Use earlier questions"}</button></div>}</div>
-    {rows === null ? <p className="dq-empty">Loading…</p> : !rows.length
-      ? <p className="dq-empty">{mine ? "Nothing yet. Questions you add are counted here automatically." : "No questions added yet."}</p>
-      : <ul className="dq-list">{rows.map(q => <li key={q.question_id}>
-        <span><b>{q.stem}</b><small>{q.topic} · {new Date(q.created_at).toLocaleDateString()}</small></span>
-        <span className={tagClass(q.status)}>{qLabel[q.status] || q.status}</span>
-        {canEdit && <button className="plain" disabled={busy} onClick={() => detach(q.question_id)}>Unlink</button>}</li>)}</ul>}
-    {open && mine && <div className="dq-pool">
-      <p>Questions you added earlier that don't count for any duty yet. Pick up to {remaining}.</p>
-      {pool === null ? <p className="dq-empty">Loading…</p> : !pool.length ? <p className="dq-empty">You have no unlinked questions.</p> :
-        <div className="dq-pool-list">{pool.map(q => <label key={q.question_id} className={pick.has(q.question_id) ? "on" : ""}>
-          <input type="checkbox" checked={pick.has(q.question_id)} disabled={!pick.has(q.question_id) && pick.size >= remaining} onChange={() => toggle(q.question_id)} />
-          <span><b>{q.stem}</b><small>{q.topic} · {qLabel[q.status] || q.status} · {new Date(q.created_at).toLocaleDateString()}</small></span></label>)}</div>}
-      <div className="actions"><button className="primary" disabled={busy || !pick.size} onClick={attach}>{busy ? "Adding…" : `Add ${pick.size || ""} to this duty`}</button></div>
-    </div>}
-  </div>;
+  const toggle = (id: string) =>
+    setPick(s => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const summaryLine = counts
+    ? `${counts.uploaded} added · ${counts.approved} approved · ${counts.waiting} waiting`
+    : `${have} added`;
+
+  return (
+    <div className="dq">
+      <div className="dq-head">
+        <strong>Questions for this duty</strong>
+        <div className="actions" style={{ alignItems: "center" }}>
+          {mine && canEdit && remaining > 0 && (
+            <>
+              <button className="primary" onClick={onAdd}>
+                Add questions
+              </button>
+              <button className="outline" onClick={() => setOpen(o => !o)}>
+                {open ? "Hide earlier questions" : "Use earlier questions"}
+              </button>
+            </>
+          )}
+          {!mine && review && (
+            <button className="outline" type="button" onClick={toggleHidden}>
+              {hidden ? "Show" : "Hide"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {hidden && !mine ? (
+        <p className="dq-summary">{summaryLine}</p>
+      ) : rows === null ? (
+        <p className="dq-empty">Loading…</p>
+      ) : !rows.length ? (
+        <p className="dq-empty">
+          {mine
+            ? "Nothing yet. Questions you add are counted here automatically."
+            : "No questions added yet."}
+        </p>
+      ) : (
+        <ul className="dq-list">
+          {rows.map(q => (
+            <li key={q.question_id}>
+              <span>
+                <b>{q.stem}</b>
+                <small>
+                  {q.topic} · {new Date(q.created_at).toLocaleDateString()}
+                </small>
+              </span>
+              <span className={tagClass(q.status)}>{qLabel[q.status] || q.status}</span>
+              {canEdit && (
+                <button className="plain" disabled={busy} onClick={() => detach(q.question_id)}>
+                  Unlink
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && mine && (
+        <div className="dq-pool">
+          <p>Questions you added earlier that don't count for any duty yet. Pick up to {remaining}.</p>
+          {pool === null ? (
+            <p className="dq-empty">Loading…</p>
+          ) : !pool.length ? (
+            <p className="dq-empty">You have no unlinked questions.</p>
+          ) : (
+            <div className="dq-pool-list">
+              {pool.map(q => (
+                <label key={q.question_id} className={pick.has(q.question_id) ? "on" : ""}>
+                  <input
+                    type="checkbox"
+                    checked={pick.has(q.question_id)}
+                    disabled={!pick.has(q.question_id) && pick.size >= remaining}
+                    onChange={() => toggle(q.question_id)}
+                  />
+                  <span>
+                    <b>{q.stem}</b>
+                    <small>
+                      {q.topic} · {qLabel[q.status] || q.status} · {new Date(q.created_at).toLocaleDateString()}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="actions">
+            <button className="primary" disabled={busy || !pick.size} onClick={attach}>
+              {busy ? "Adding…" : `Add ${pick.size || ""} to this duty`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
