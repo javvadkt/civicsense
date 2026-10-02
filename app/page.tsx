@@ -360,8 +360,7 @@ export default function Home() {
     [attendance, setAttendance] = useState<any[]>([]),
     [enrollmentEdits, setEnrollmentEdits] = useState<Record<string, string>>({});
   // Mobile Profile Menu State (screens <= 750px)
-  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
-  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+    const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
 
   // Question Bank Kebab & Modal Delete State
   const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
@@ -918,7 +917,7 @@ useEffect(() => {
     const closeMenus = (e: MouseEvent) => {
       if (menuQuizId) setMenuQuizId(null);
       if (bankMenuQId) setBankMenuQId(null);
-      if (mobileProfileOpen && mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+           if (mobileProfileOpen && !(e.target as HTMLElement | null)?.closest(".profile-menu")) {
         setMobileProfileOpen(false);
       }
     };
@@ -1883,6 +1882,53 @@ function logout() {
         </div>
       </main>
     );
+  const initials = (() => {
+    const parts = profile.full_name.trim().split(/\s+/);
+    return (parts.length > 1 ? parts[0][0] + parts[1][0] : profile.full_name.trim().slice(0, 2)).toUpperCase();
+  })();
+
+  const renderProfileMenu = (variant: "header" | "side") => (
+    <div className={`profile-menu profile-menu--${variant}`}>
+      <button
+        type="button"
+        className="profile-btn"
+        aria-haspopup="menu"
+        aria-expanded={mobileProfileOpen}
+        aria-label="Account profile and options"
+        onClick={e => {
+          e.stopPropagation();
+          setMobileProfileOpen(o => !o);
+        }}
+      >
+        <span className="profile-avatar">{initials}</span>
+        <span className="profile-name">{profile.full_name.split(" ")[0]}</span>
+        <span className="profile-role">{labels[profile.role]}</span>
+        <ChevronDown size={14} />
+      </button>
+
+      {mobileProfileOpen && (
+        <div className="profile-dropdown" role="menu" onClick={e => e.stopPropagation()}>
+          <div className="profile-dropdown-head">
+            <strong>{profile.full_name}</strong>
+            {profile.enrollment_number && <small>Roll: {profile.enrollment_number}</small>}
+            <span className="pill profile-pill">{labels[profile.role]}</span>
+          </div>
+          <hr className="profile-divider" />
+          <button
+            type="button"
+            role="menuitem"
+            className="profile-signout"
+            onClick={() => {
+              setMobileProfileOpen(false);
+              logout();
+            }}
+          >
+            <LogOut size={15} /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <main className="shell">
@@ -1898,51 +1944,8 @@ function logout() {
             </span>
           </div>
 
-          {/* Mobile Profile Trigger (Visible only on screens <= 750px) */}
-          <div className="mobile-profile-container" ref={mobileMenuRef}>
-            <button
-              type="button"
-              className="mobile-profile-btn"
-              onClick={e => {
-                e.stopPropagation();
-                setMobileProfileOpen(o => !o);
-              }}
-              aria-label="Account profile and options"
-            >
-              <span className="mobile-profile-avatar">
-                {profile.full_name.trim().slice(0, 2).toUpperCase()}
-              </span>
-              <span className="mobile-profile-name">{profile.full_name.split(" ")[0]}</span>
-              <ChevronDown size={14} />
-            </button>
-
-            {mobileProfileOpen && (
-              <div
-                className="mobile-profile-dropdown"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="mobile-profile-header">
-                  <strong>{profile.full_name}</strong>
-                  {profile.enrollment_number && (
-                    <small>Roll: {profile.enrollment_number}</small>
-                  )}
-                  <span className="pill mobile-pill">{labels[profile.role]}</span>
-                </div>
-                <hr className="mobile-divider" />
-                <button
-                  type="button"
-                  className="mobile-signout-btn"
-                  onClick={() => {
-                    setMobileProfileOpen(false);
-                    logout();
-                  }}
-                >
-                  <LogOut size={15} /> Sign out
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+                   {/* Profile menu (phones only) */}
+          {renderProfileMenu("side")}
 
         <nav>
           {links.map(x => {
@@ -1968,17 +1971,7 @@ function logout() {
           })}
         </nav>
 
-        {/* Desktop Identity Box (Hidden on screens <= 750px) */}
-        <div className="identity desktop-identity">
-          <strong>
-            {profile.full_name}
-            {profile.enrollment_number ? ` · ${profile.enrollment_number}` : ""}
-          </strong>
-          <small>{labels[profile.role]}</small>
-          <button onClick={logout}>
-            <LogOut size={16} /> Sign out
-          </button>
-        </div>
+       
       </aside>
 
       <div className="main">
@@ -1993,7 +1986,7 @@ function logout() {
                 <RefreshCw size={14} /> Updating
               </span>
             )}
-            <button className="pill">{labels[profile.role]}</button>
+              {renderProfileMenu("header")}
           </div>
         </header>
 
