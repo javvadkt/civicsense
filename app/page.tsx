@@ -1932,7 +1932,7 @@ function logout() {
 
   return (
     <main className="shell">
-      <aside className="side">
+     <aside className="side">
         <div className="side-top-row">
           <div className="brand">
             <span className="logo">
@@ -1944,8 +1944,9 @@ function logout() {
             </span>
           </div>
 
-                   {/* Profile menu (phones only) */}
+          {/* Profile menu (phones only) */}
           {renderProfileMenu("side")}
+        </div>
 
         <nav>
           {links.map(x => {
@@ -1968,10 +1969,9 @@ function logout() {
                 {x === "Quizzes" && liveUnsubmitted > 0 && <b className="live-count">{liveUnsubmitted}</b>}
               </button>
             );
-          })}
+         })}
         </nav>
 
-       
       </aside>
 
       <div className="main">
