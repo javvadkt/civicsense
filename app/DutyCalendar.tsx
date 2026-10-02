@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, TriangleAlert } from "lucide-react";
 import type { Api, Rotation } from "./DutyTools";
 import { BulkAssign, DutyHistory, DutyQuestions, ReportLeaveModal, RotationPanel, dayLabel, dutyStatuses, shiftDay, waitingList } from "./DutyTools";
@@ -81,7 +81,6 @@ export default function DutyCalendar(p: Props) {
 
   const status = selected?.duty_status || "assigned", stepIndex = steps.indexOf(status);
   const mine = selected?.student_id === p.profile.id;
-  // Teachers and admin can review all; students see their own; leaders only see their own
   const canSee = review || mine;
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveCount, setLeaveCount] = useState(0);
@@ -145,7 +144,7 @@ export default function DutyCalendar(p: Props) {
   return <div className="dc">
     <section className="card dc-bar">
       <div><span className="eyebrow">DUTY ROTATION</span><h2>Daily question duty</h2><p>{new Date(`${dutyDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}{isToday ? " · Today" : ""}</p></div>
-     <div className="dc-nav">
+      <div className="dc-nav">
         <button className="outline" aria-label="Previous week" onClick={() => p.onSelectDate(shift(dutyDate, -7))}><ChevronLeft size={16} /></button>
         <input type="date" aria-label="Duty date" value={dutyDate} onChange={e => e.target.value && p.onSelectDate(e.target.value)} />
         <button className="outline" aria-label="Next week" onClick={() => p.onSelectDate(shift(dutyDate, 7))}><ChevronRight size={16} /></button>
