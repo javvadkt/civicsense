@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, TriangleAlert } from "lucide-react";
 import type { Api, Rotation } from "./DutyTools";
-import { BulkAssign, DutyHistory, DutyQuestions, MyAvailability, RotationPanel, dayLabel, dutyStatuses, shiftDay, waitingList } from "./DutyTools";
+import { BulkAssign, DutyHistory, DutyQuestions, ReportLeaveModal, RotationPanel, dayLabel, dutyStatuses, shiftDay, waitingList } from "./DutyTools";
 
 const steps = ["assigned", "confirmed", "in_progress", "submitted", "reviewed"];
 const swapBlocked = ["submitted", "reviewed", "excused", "missed"];
@@ -81,7 +81,27 @@ export default function DutyCalendar(p: Props) {
 
   const status = selected?.duty_status || "assigned", stepIndex = steps.indexOf(status);
   const mine = selected?.student_id === p.profile.id;
-  const canSee = manage || mine;
+  // Teachers and admin can review all; students see their own; leaders only see their own
+  const canSee = review || mine;
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveCount, setLeaveCount] = useState(0);
+
+  const loadLeaveCount = useCallback(async () => {
+    if (!isParticipant) return;
+    try {
+      const res = await p.api(
+        `/rest/v1/duty_availability?select=availability_date&profile_id=eq.${p.profile.id}&availability_date=gte.${today}&status=neq.available`
+      );
+      setLeaveCount(Array.isArray(res) ? res.length : 0);
+    } catch {
+      setLeaveCount(0);
+    }
+  }, [isParticipant, p.profile.id, p.api, today]);
+
+  useEffect(() => {
+    loadLeaveCount();
+  }, [loadLeaveCount]);
+  
   const prog = p.progress && selected && p.progress.duty_id === selected.id ? p.progress : undefined;
   const target = selected?.target_count ?? 5;
   const uploaded = Number(prog?.submitted_count ?? 0), approvedN = Number(prog?.approved_count ?? 0), pendingN = Number(prog?.pending_count ?? 0), revisionN = Number(prog?.revision_requested_count ?? 0);
@@ -125,11 +145,17 @@ export default function DutyCalendar(p: Props) {
   return <div className="dc">
     <section className="card dc-bar">
       <div><span className="eyebrow">DUTY ROTATION</span><h2>Daily question duty</h2><p>{new Date(`${dutyDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}{isToday ? " · Today" : ""}</p></div>
-      <div className="dc-nav">
+     <div className="dc-nav">
         <button className="outline" aria-label="Previous week" onClick={() => p.onSelectDate(shift(dutyDate, -7))}><ChevronLeft size={16} /></button>
         <input type="date" aria-label="Duty date" value={dutyDate} onChange={e => e.target.value && p.onSelectDate(e.target.value)} />
         <button className="outline" aria-label="Next week" onClick={() => p.onSelectDate(shift(dutyDate, 7))}><ChevronRight size={16} /></button>
         <button className="outline" onClick={() => p.onSelectDate(today)}>Today</button>
+        {isParticipant && (
+          <button className="outline dc-leave-btn" onClick={() => setLeaveOpen(true)}>
+            Report leave
+            {leaveCount > 0 && <span className="dc-badge">{leaveCount}</span>}
+          </button>
+        )}
       </div>
     </section>
 
@@ -163,7 +189,23 @@ export default function DutyCalendar(p: Props) {
 
       {selected.status_note && status !== "change_requested" && <p className="duty-note"><b>Latest note:</b> {selected.status_note}</p>}
 
-      {canSee && <DutyQuestions key={selected.id} duty={selected} mine={mine} manage={manage} target={target} signal={`${uploaded}-${approvedN}-${pendingN}-${revisionN}-${status}`} api={p.api} flash={p.flash} fail={p.fail} refresh={p.refresh} onAdd={p.onAddQuestions} />}
+      {canSee && (
+        <DutyQuestions
+          key={selected.id}
+          duty={selected}
+          mine={mine}
+          manage={manage}
+          review={review}
+          counts={{ uploaded, approved: approvedN, waiting: pendingN + revisionN }}
+          target={target}
+          signal={`${uploaded}-${approvedN}-${pendingN}-${revisionN}-${status}`}
+          api={p.api}
+          flash={p.flash}
+          fail={p.fail}
+          refresh={p.refresh}
+          onAdd={p.onAddQuestions}
+        />
+      )}
 
       {review && <div className="dc-staff"><strong>Teacher actions</strong><div className="actions">
         {status !== "reviewed" && <button className="primary" disabled={busy || !enough} onClick={() => p.onStatus(selected, "reviewed")}>Mark reviewed</button>}
@@ -187,7 +229,21 @@ export default function DutyCalendar(p: Props) {
       </div>
     </section>}
 
-    {isParticipant && <MyAvailability profile={p.profile} duties={duties} today={today} api={p.api} flash={p.flash} fail={p.fail} />}
+    {isParticipant && leaveOpen && (
+      <ReportLeaveModal
+        profile={p.profile}
+        duties={duties}
+        today={today}
+        api={p.api}
+        flash={p.flash}
+        fail={p.fail}
+        onClose={() => setLeaveOpen(false)}
+        onChanged={() => {
+          loadLeaveCount();
+          p.refresh();
+        }}
+      />
+    )}
 
     <section className="card duty-list">
       <div className="duty-list-heading"><div><h3>{showPast ? "Past duties" : "Upcoming duties"}</h3><p>Select a row to open that day.</p></div>
