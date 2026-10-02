@@ -26,7 +26,14 @@ import {
   XCircle,
   Play,
   Edit,
-  Eye
+  Eye,
+  Filter,
+  RotateCcw,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import DutyCalendar from "./DutyCalendar";
 import QuizBuilder, { QuizPayload } from "./QuizBuilder";
@@ -63,9 +70,9 @@ type Question = {
   author_id: string;
   created_at: string;
   is_special: boolean;
+  is_used_in_quiz?: boolean;
   author?: { full_name: string; enrollment_number?: string | null };
 };
-
 type Duty = {
   id: string;
   duty_date: string;
@@ -371,10 +378,45 @@ export default function Home() {
   const [memberModal, setMemberModal] = useState(false);
   const [clock, setClock] = useState(Date.now());
 
-  // Step 1 Refs
+// Step 1 Refs
   const timerSubmitRef = useRef(false);
   const autosaveTimerRef = useRef<any>(null);
   const token = session?.access_token || "";
+
+  // Dedicated Question Bank State
+  const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
+  const [bankTotal, setBankTotal] = useState(0);
+  const [bankUploaders, setBankUploaders] = useState<{ id: string; full_name: string; enrollment_number?: string | null }[]>([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankOffset, setBankOffset] = useState(0);
+
+  // Question Bank Filters & Sorters
+  const [bankSearch, setBankSearch] = useState("");
+  const [bankTopic, setBankTopic] = useState("all");
+  const [bankAuthorId, setBankAuthorId] = useState("all");
+  const [bankOnlyMine, setBankOnlyMine] = useState(false);
+  const [bankStatus, setBankStatus] = useState("all");
+  const [bankSpecial, setBankSpecial] = useState<"all" | "special" | "standard">("all");
+  const [bankDateFrom, setBankDateFrom] = useState("");
+  const [bankDateTo, setBankDateTo] = useState("");
+  const [bankHasSource, setBankHasSource] = useState<"all" | "yes" | "no">("all");
+  const [bankQuizUsage, setBankQuizUsage] = useState<"all" | "used" | "unused">("all");
+  const [bankSort, setBankSort] = useState<"newest" | "oldest" | "topic" | "uploader" | "status">("newest");
+  const [bankFilterPanelOpen, setBankFilterPanelOpen] = useState(false);
+
+  // Self-Run Mock Quiz State (Student & Leader)
+  const [mockModalOpen, setMockModalOpen] = useState(false);
+  const [mockTopics, setMockTopics] = useState<string[]>([]);
+  const [mockCount, setMockCount] = useState<number>(10);
+  const [mockTimerMinutes, setMockTimerMinutes] = useState<number>(15);
+  const [mockScrollMode, setMockScrollMode] = useState<"scroll" | "single">("scroll");
+  const [mockSessionActive, setMockSessionActive] = useState(false);
+  const [mockQuestionsList, setMockQuestionsList] = useState<any[]>([]);
+  const [mockAnswers, setMockAnswers] = useState<Record<string, number>>({});
+  const [mockCurrentIndex, setMockCurrentIndex] = useState(0);
+  const [mockTimeRemaining, setMockTimeRemaining] = useState<number | null>(null);
+  const [mockResult, setMockResult] = useState<any | null>(null);
+  const [mockLoading, setMockLoading] = useState(false);
 
   // Cards, Filters & Dropdown
   const [quizFilter, setQuizFilter] = useState<"all" | "live" | "upcoming" | "closed">("all");
@@ -517,7 +559,7 @@ export default function Home() {
     })();
   }, [load]);
 
-  useEffect(() => {
+useEffect(() => {
     if (session && profile?.active) {
       setRefreshing(true);
       load(session)
@@ -525,6 +567,200 @@ export default function Home() {
         .finally(() => setRefreshing(false));
     }
   }, [view, session, profile?.active, load]);
+
+  const loadQuestionBank = useCallback(async (offset = 0, append = false) => {
+    if (!token) return;
+    setBankLoading(true);
+    try {
+      const res = await request("/rest/v1/rpc/get_question_bank", token, "POST", {
+        p_search: bankSearch.trim() || null,
+        p_topic: bankTopic === "all" ? null : bankTopic,
+        p_author_id: bankAuthorId === "all" ? null : bankAuthorId,
+        p_only_mine: bankOnlyMine,
+        p_status: bankStatus === "all" ? null : bankStatus,
+        p_is_special: bankSpecial === "all" ? null : bankSpecial === "special",
+        p_date_from: bankDateFrom || null,
+        p_date_to: bankDateTo || null,
+        p_has_source: bankHasSource === "all" ? null : bankHasSource === "yes",
+        p_quiz_usage: bankQuizUsage === "all" ? null : bankQuizUsage,
+        p_sort: bankSort,
+        p_limit: 25,
+        p_offset: offset
+      });
+      if (res) {
+        setBankTotal(res.total ?? 0);
+        if (res.uploaders) setBankUploaders(res.uploaders);
+        if (append) {
+          setBankQuestions(prev => [...prev, ...(res.questions || [])]);
+        } else {
+          setBankQuestions(res.questions || []);
+        }
+        setBankOffset(offset);
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to load question bank");
+    } finally {
+      setBankLoading(false);
+    }
+  }, [
+    token,
+    bankSearch,
+    bankTopic,
+    bankAuthorId,
+    bankOnlyMine,
+    bankStatus,
+    bankSpecial,
+    bankDateFrom,
+    bankDateTo,
+    bankHasSource,
+    bankQuizUsage,
+    bankSort
+  ]);
+
+  useEffect(() => {
+    if (session && profile?.active && view === "Question bank") {
+      loadQuestionBank(0, false);
+    }
+  }, [view, session, profile?.active, loadQuestionBank]);
+
+  const resetBankFilters = () => {
+    setBankSearch("");
+    setBankTopic("all");
+    setBankAuthorId("all");
+    setBankOnlyMine(false);
+    setBankStatus("all");
+    setBankSpecial("all");
+    setBankDateFrom("");
+    setBankDateTo("");
+    setBankHasSource("all");
+    setBankQuizUsage("all");
+    setBankSort("newest");
+  };
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (bankTopic !== "all") count++;
+    if (bankAuthorId !== "all") count++;
+    if (bankOnlyMine) count++;
+    if (bankStatus !== "all") count++;
+    if (bankSpecial !== "all") count++;
+    if (bankDateFrom) count++;
+    if (bankDateTo) count++;
+    if (bankHasSource !== "all") count++;
+    if (bankQuizUsage !== "all") count++;
+    return count;
+  }, [bankTopic, bankAuthorId, bankOnlyMine, bankStatus, bankSpecial, bankDateFrom, bankDateTo, bankHasSource, bankQuizUsage]);
+
+  // Mock Quiz Timer
+  useEffect(() => {
+    if (!mockSessionActive || mockTimeRemaining === null) return;
+    if (mockTimeRemaining <= 0) {
+      finishMockQuiz();
+      return;
+    }
+    const timer = setInterval(() => {
+      setMockTimeRemaining(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [mockSessionActive, mockTimeRemaining]);
+
+  const startMockQuiz = async () => {
+    setMockLoading(true);
+    setError("");
+    try {
+      let rawPool: any[] = [];
+      try {
+        rawPool = await request("/rest/v1/rpc/get_mock_quiz_pool", token, "POST", {
+          p_topics: mockTopics.length ? mockTopics : null,
+          p_count: mockCount === 0 ? 1000 : mockCount
+        });
+      } catch {
+        rawPool = bankQuestions.filter(q => q.status === "approved");
+        if (mockTopics.length) rawPool = rawPool.filter(q => mockTopics.includes(q.topic));
+      }
+
+      if (!rawPool || !rawPool.length) {
+        throw new Error("No approved questions found in your bank matching the selected criteria.");
+      }
+
+      // Shuffle questions and options with mapped correct indices
+      const prepared = [...rawPool]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, mockCount === 0 ? rawPool.length : mockCount)
+        .map(q => {
+          const originalOpts: string[] = Array.isArray(q.options) ? q.options : [];
+          const correctText = originalOpts[q.correct_index];
+          const indexed = originalOpts.map((opt, idx) => ({ text: opt, isCorrect: idx === q.correct_index }));
+          const shuffledIndexed = indexed.sort(() => Math.random() - 0.5);
+          const newCorrectIndex = shuffledIndexed.findIndex(item => item.isCorrect);
+          return {
+            ...q,
+            options: shuffledIndexed.map(item => item.text),
+            correct_index: newCorrectIndex >= 0 ? newCorrectIndex : q.correct_index,
+            original_correct_text: correctText
+          };
+        });
+
+      setMockQuestionsList(prepared);
+      setMockAnswers({});
+      setMockCurrentIndex(0);
+      setMockTimeRemaining(mockTimerMinutes > 0 ? mockTimerMinutes * 60 : null);
+      setMockModalOpen(false);
+      setMockSessionActive(true);
+      setMockResult(null);
+    } catch (e: any) {
+      setError(e.message || "Failed to start practice quiz");
+    } finally {
+      setMockLoading(false);
+    }
+  };
+
+  const finishMockQuiz = () => {
+    let score = 0;
+    let wrong = 0;
+    let skipped = 0;
+    const topicMap: Record<string, { total: number; correct: number }> = {};
+
+    mockQuestionsList.forEach(q => {
+      const t = q.topic || "General";
+      if (!topicMap[t]) topicMap[t] = { total: 0, correct: 0 };
+      topicMap[t].total++;
+
+      const userPick = mockAnswers[q.id];
+      if (userPick === undefined) {
+        skipped++;
+      } else if (userPick === q.correct_index) {
+        score++;
+        topicMap[t].correct++;
+      } else {
+        wrong++;
+      }
+    });
+
+    const total = mockQuestionsList.length;
+    const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+    const topicStats = Object.entries(topicMap).map(([t, data]) => ({
+      topic: t,
+      total: data.total,
+      correct: data.correct,
+      pct: Math.round((data.correct / data.total) * 100)
+    }));
+
+    setMockResult({
+      score,
+      total,
+      wrong,
+      skipped,
+      pct,
+      topicStats,
+      questions: mockQuestionsList.map(q => ({
+        ...q,
+        user_pick: mockAnswers[q.id]
+      }))
+    });
+    setMockSessionActive(false);
+    setMockTimeRemaining(null);
+  };
 
   // Auto-reopen quiz if refreshed during an active session
   useEffect(() => {
@@ -1897,40 +2133,224 @@ function logout() {
         {view === "Question bank" && (
           <>
             <div className="section-title">
-              <p>Review your submissions and study approved questions. Sources and explanations are optional.</p>
-              <button className="primary" onClick={() => openQuestion()}>
-                <Plus size={16} /> Add question
-              </button>
+              <div>
+                <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
+              </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                {!review && (
+                  <button className="outline" onClick={() => { setMockTopics([]); setMockModalOpen(true); }}>
+                    <Play size={16} /> Practice mock quiz
+                  </button>
+                )}
+                <button className="primary" onClick={() => openQuestion()}>
+                  <Plus size={16} /> Add question
+                </button>
+              </div>
             </div>
-            <section className="card">
-              <h3>Questions · {questions.length}</h3>
-              {questions.map(q => {
+
+            {/* Filter & Search Bar */}
+            <section className="card qb-filter-card" style={{ padding: "16px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ position: "relative", flex: "1 1 240px", minWidth: "220px" }}>
+                  <Search size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", opacity: 0.5 }} />
+                  <input
+                    type="search"
+                    placeholder="Search stem, options, explanation, source..."
+                    value={bankSearch}
+                    onChange={e => setBankSearch(e.target.value)}
+                    style={{ paddingLeft: "36px", width: "100%", height: "42px" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    className={bankFilterPanelOpen || activeFilterCount > 0 ? "primary" : "outline"}
+                    style={{ height: "42px", padding: "0 14px", borderRadius: "9px" }}
+                    onClick={() => setBankFilterPanelOpen(!bankFilterPanelOpen)}
+                  >
+                    <Filter size={15} /> Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}
+                  </button>
+                  <select
+                    value={bankSort}
+                    onChange={e => setBankSort(e.target.value as any)}
+                    style={{ height: "42px", padding: "0 12px", borderRadius: "9px", minWidth: "140px" }}
+                    aria-label="Sort questions"
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="topic">Topic (A–Z)</option>
+                    <option value="uploader">Uploader (A–Z)</option>
+                    <option value="status">Status</option>
+                  </select>
+                  {activeFilterCount > 0 && (
+                    <button className="plain" onClick={resetBankFilters} style={{ padding: "8px", fontSize: "13px" }} title="Reset filters">
+                      <RotateCcw size={15} /> Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Collapsible Filter Details */}
+              {bankFilterPanelOpen && (
+                <div className="qb-filter-grid" style={{ marginTop: "14px", paddingTop: "14px", borderTop: "1px solid var(--border,#e2e8f0)" }}>
+                  <label>
+                    Topic
+                    <select value={bankTopic} onChange={e => setBankTopic(e.target.value)}>
+                      <option value="all">All topics</option>
+                      {topics.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+
+                  <label>
+                    Uploader
+                    <select value={bankAuthorId} onChange={e => setBankAuthorId(e.target.value)}>
+                      <option value="all">All uploaders</option>
+                      {bankUploaders.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name}{u.enrollment_number ? ` (${u.enrollment_number})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Status
+                    <select value={bankStatus} onChange={e => setBankStatus(e.target.value)}>
+                      <option value="all">All statuses</option>
+                      <option value="approved">Approved</option>
+                      <option value="pending">Waiting review</option>
+                      <option value="revision_requested">Needs revision</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Question type
+                    <select value={bankSpecial} onChange={e => setBankSpecial(e.target.value as any)}>
+                      <option value="all">All questions</option>
+                      <option value="special">Special questions only</option>
+                      <option value="standard">Standard only</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Upload date from
+                    <input type="date" value={bankDateFrom} onChange={e => setBankDateFrom(e.target.value)} />
+                  </label>
+
+                  <label>
+                    Upload date to
+                    <input type="date" value={bankDateTo} onChange={e => setBankDateTo(e.target.value)} />
+                  </label>
+
+                  <label>
+                    Source citation
+                    <select value={bankHasSource} onChange={e => setBankHasSource(e.target.value as any)}>
+                      <option value="all">Any</option>
+                      <option value="yes">With source URL/citation</option>
+                      <option value="no">Without source</option>
+                    </select>
+                  </label>
+
+                  {review && (
+                    <label>
+                      Quiz usage (Staff)
+                      <select value={bankQuizUsage} onChange={e => setBankQuizUsage(e.target.value as any)}>
+                        <option value="all">All</option>
+                        <option value="used">Used in a quiz</option>
+                        <option value="unused">Never used in any quiz</option>
+                      </select>
+                    </label>
+                  )}
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "24px" }}>
+                    <label className="check-row" style={{ cursor: "pointer", fontWeight: 600 }}>
+                      <input type="checkbox" checked={bankOnlyMine} onChange={e => setBankOnlyMine(e.target.checked)} />
+                      Only my contributions
+                    </label>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Questions Bank List */}
+            <section className="card" style={{ padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "8px" }}>
+                <h3 style={{ margin: 0 }}>
+                  Questions · <span style={{ opacity: 0.7 }}>Showing {bankQuestions.length} of {bankTotal}</span>
+                </h3>
+                {bankLoading && <span className="muted"><RefreshCw size={14} /> Updating list…</span>}
+              </div>
+
+              {bankQuestions.map(q => {
                 const canEdit = review || (q.author_id === profile.id && ["pending", "revision_requested"].includes(q.status));
+                const authorDisplay = q.author?.full_name ? memberName(q.author_id, q.author.full_name) : "Contributor";
+                const createdDate = new Date(q.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+
                 return (
                   <details className="question" key={q.id}>
                     <summary>
-                      <div>
-                        <strong>{q.stem}</strong>
-                        <small>
-                          {q.topic}
-                          {q.is_special ? " · Special" : ""} · {memberName(q.author_id, q.author?.full_name || "Contributor")} ·{" "}
-                          {new Date(q.created_at).toLocaleDateString()}
+                      <div style={{ flex: 1, minWidth: 0, paddingRight: "10px" }}>
+                        <strong style={{ fontSize: "15px", lineHeight: 1.4 }}>{q.stem}</strong>
+                        <small style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
+                          <span>{q.topic}</span>
+                          {q.is_special && <span className="tag pending" style={{ padding: "2px 6px", fontSize: "11px" }}>Special</span>}
+                          {review && (
+                            <span className={`tag ${q.is_used_in_quiz ? "approved" : ""}`} style={{ padding: "2px 6px", fontSize: "11px" }}>
+                              {q.is_used_in_quiz ? "In quiz" : "Unused"}
+                            </span>
+                          )}
+                          <span>•</span>
+                          <span>{authorDisplay}</span>
+                          <span>•</span>
+                          <span>{createdDate}</span>
                         </small>
                       </div>
                       <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
                     </summary>
-                    <ol type="A">
-                      {q.options.map((o, i) => (
-                        <li key={i}>
-                          {o}
-                          {q.status === "approved" && i === q.correct_index ? " ✓" : ""}
-                        </li>
-                      ))}
-                    </ol>
-                    {q.status === "approved" && q.explanation && <p><b>Explanation:</b> {q.explanation}</p>}
-                    <Source value={q.source_url} />
+
+                    {/* Answer Options: Highlight correct answer in green with checkmark for ALL roles */}
+                    <div className="qb-options-list" style={{ marginTop: "12px", display: "grid", gap: "8px" }}>
+                      {q.options.map((opt, optIdx) => {
+                        const isCorrect = optIdx === q.correct_index;
+                        return (
+                          <div
+                            key={optIdx}
+                            style={{
+                              padding: "10px 14px",
+                              borderRadius: "8px",
+                              fontSize: "14px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              border: isCorrect ? "1.5px solid #10b981" : "1px solid var(--border,#e2e8f0)",
+                              background: isCorrect ? "#f0fdf4" : "var(--surface,#ffffff)"
+                            }}
+                          >
+                            <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <b style={{ color: isCorrect ? "#10b981" : "var(--muted-fg,#64748b)" }}>{"ABCD"[optIdx]}.</b>
+                              <span>{opt}</span>
+                            </span>
+                            {isCorrect && (
+                              <span style={{ color: "#10b981", fontWeight: 700, fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                <CheckCircle size={15} /> Correct answer
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {q.explanation && (
+                      <div style={{ marginTop: "12px", padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", fontSize: "13px", borderLeft: "3px solid #3b82f6" }}>
+                        <b>Explanation:</b> {q.explanation}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: "8px" }}>
+                      <Source value={q.source_url} />
+                    </div>
+
                     {canEdit && (
-                      <div className="actions">
+                      <div className="actions" style={{ marginTop: "12px" }}>
                         <button className="outline" onClick={() => openQuestion(q)}>
                           Edit question
                         </button>
@@ -1938,8 +2358,11 @@ function logout() {
                           <button
                             className="danger-outline"
                             onClick={async () => {
-                              if (confirm("Delete this question and remove it from quiz question lists?"))
-                                await change(route("questions", `id=eq.${q.id}`), null, "DELETE");
+                              if (confirm("Delete this question and remove it from quiz question lists?")) {
+                                if (await change(route("questions", `id=eq.${q.id}`), null, "DELETE")) {
+                                  loadQuestionBank(bankOffset, false);
+                                }
+                              }
                             }}
                           >
                             Delete
@@ -1950,8 +2373,472 @@ function logout() {
                   </details>
                 );
               })}
-              {!questions.length && <Empty text="The question bank is empty." />}
+
+              {!bankQuestions.length && !bankLoading && (
+                <Empty text="No questions match the current filter and visibility criteria." />
+              )}
+
+              {bankQuestions.length < bankTotal && (
+                <div style={{ marginTop: "20px", textAlign: "center" }}>
+                  <button
+                    className="outline"
+                    disabled={bankLoading}
+                    onClick={() => loadQuestionBank(bankQuestions.length, true)}
+                    style={{ minWidth: "220px", height: "42px" }}
+                  >
+                    {bankLoading ? "Loading…" : `Load more questions (${bankTotal - bankQuestions.length} remaining)`}
+                  </button>
+                </div>
+              )}
             </section>
+
+            {/* Self-Run Mock Quiz Setup Dialog */}
+            {mockModalOpen && (
+              <div
+                className="modal-backdrop"
+                onMouseDown={e => {
+                  if (e.target === e.currentTarget && !mockLoading) setMockModalOpen(false);
+                }}
+              >
+                <section className="modal form-card" role="dialog" aria-modal="true" style={{ maxWidth: "560px", width: "95%" }}>
+                  <div className="modal-head">
+                    <div>
+                      <span className="eyebrow">SELF-STUDY · PRACTICE TEST</span>
+                      <h2>Practice mock quiz</h2>
+                    </div>
+                    <button className="icon-button" aria-label="Close" onClick={() => setMockModalOpen(false)} disabled={mockLoading}>
+                      <X />
+                    </button>
+                  </div>
+                  <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                    <div className="card" style={{ padding: "12px", background: "#f0f7ff", border: "1px solid #dbeafe", margin: 0 }}>
+                      <p style={{ margin: 0, fontSize: "13px", color: "#1e40af" }}>
+                        <b>Practice only:</b> Questions are drawn randomly from your approved bank. Shuffled options and questions. Answers are evaluated instantly in your browser and will <b>not</b> record attendance or affect your marks.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>
+                        Select topics ({mockTopics.length ? mockTopics.length : "All topics"})
+                      </label>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className={mockTopics.length === 0 ? "primary" : "outline"}
+                          style={{ padding: "4px 12px", borderRadius: "16px", fontSize: "12px" }}
+                          onClick={() => setMockTopics([])}
+                        >
+                          All topics
+                        </button>
+                        {topics.map(t => {
+                          const active = mockTopics.includes(t);
+                          return (
+                            <button
+                              type="button"
+                              key={t}
+                              className={active ? "primary" : "outline"}
+                              style={{ padding: "4px 12px", borderRadius: "16px", fontSize: "12px" }}
+                              onClick={() => {
+                                if (active) setMockTopics(mockTopics.filter(x => x !== t));
+                                else setMockTopics([...mockTopics, t]);
+                              }}
+                            >
+                              {t}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Number of questions</label>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {[5, 10, 20, 0].map(cnt => (
+                          <button
+                            type="button"
+                            key={cnt}
+                            className={mockCount === cnt ? "primary" : "outline"}
+                            style={{ padding: "8px 16px", borderRadius: "8px", fontSize: "13px" }}
+                            onClick={() => setMockCount(cnt)}
+                          >
+                            {cnt === 0 ? "All available" : `${cnt} questions`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Timer</label>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {[
+                          { m: 0, label: "Untimed" },
+                          { m: 5, label: "5 mins" },
+                          { m: 10, label: "10 mins" },
+                          { m: 15, label: "15 mins" },
+                          { m: 30, label: "30 mins" }
+                        ].map(tm => (
+                          <button
+                            type="button"
+                            key={tm.m}
+                            className={mockTimerMinutes === tm.m ? "primary" : "outline"}
+                            style={{ padding: "8px 14px", borderRadius: "8px", fontSize: "13px" }}
+                            onClick={() => setMockTimerMinutes(tm.m)}
+                          >
+                            {tm.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Display mode</label>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button
+                          type="button"
+                          className={mockScrollMode === "scroll" ? "primary" : "outline"}
+                          style={{ padding: "8px 16px", borderRadius: "8px", fontSize: "13px", flex: 1 }}
+                          onClick={() => setMockScrollMode("scroll")}
+                        >
+                          Single scroll (all questions)
+                        </button>
+                        <button
+                          type="button"
+                          className={mockScrollMode === "single" ? "primary" : "outline"}
+                          style={{ padding: "8px 16px", borderRadius: "8px", fontSize: "13px", flex: 1 }}
+                          onClick={() => setMockScrollMode("single")}
+                        >
+                          One question at a time
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                      <button className="outline" onClick={() => setMockModalOpen(false)} disabled={mockLoading}>
+                        Cancel
+                      </button>
+                      <button className="primary" onClick={startMockQuiz} disabled={mockLoading}>
+                        {mockLoading ? "Generating practice test…" : "Start practice test"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* Active Self-Run Mock Quiz Runner */}
+            {mockSessionActive && (
+              <div className="quiz-portal" style={{ zIndex: 90 }}>
+                <header className="portal-header">
+                  <div>
+                    <span className="eyebrow" style={{ color: "#2563eb" }}>PRACTICE ONLY · UNGRADED MOCK QUIZ</span>
+                    <h1>Self-run practice quiz</h1>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginLeft: "auto" }}>
+                    <div style={{ display: "flex", gap: "4px", background: "#f1f5f9", padding: "4px", borderRadius: "8px" }}>
+                      <button
+                        className={mockScrollMode === "single" ? "primary" : "plain"}
+                        style={{ padding: "4px 10px", fontSize: "12px", borderRadius: "6px" }}
+                        onClick={() => setMockScrollMode("single")}
+                      >
+                        Single
+                      </button>
+                      <button
+                        className={mockScrollMode === "scroll" ? "primary" : "plain"}
+                        style={{ padding: "4px 10px", fontSize: "12px", borderRadius: "6px" }}
+                        onClick={() => setMockScrollMode("scroll")}
+                      >
+                        Scroll
+                      </button>
+                    </div>
+
+                    {mockTimeRemaining !== null && (
+                      <div className={`timer ${mockTimeRemaining < 60 ? "timer-low" : ""}`}>
+                        <Timer size={18} />
+                        <span>
+                          {String(Math.floor(mockTimeRemaining / 60)).padStart(2, "0")}:{String(mockTimeRemaining % 60).padStart(2, "0")}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      className="outline"
+                      onClick={() => {
+                        if (confirm("Exit practice quiz? Your answers will not be saved.")) {
+                          setMockSessionActive(false);
+                        }
+                      }}
+                    >
+                      Exit
+                    </button>
+                  </div>
+                </header>
+
+                <div className="portal-body">
+                  <aside className="question-nav">
+                    <strong>Questions ({Object.keys(mockAnswers).length}/{mockQuestionsList.length})</strong>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px", margin: "12px 0" }}>
+                      {mockQuestionsList.map((q, i) => (
+                        <button
+                          key={q.id}
+                          className={mockAnswers[q.id] !== undefined ? "answered" : ""}
+                          onClick={() => {
+                            if (mockScrollMode === "single") setMockCurrentIndex(i);
+                            else document.getElementById(`mock-q-${i}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          }}
+                          style={{
+                            border: mockScrollMode === "single" && mockCurrentIndex === i ? "2px solid #2563eb" : undefined
+                          }}
+                        >
+                          {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                    <small>Self-paced UPSC preparation</small>
+                    <button className="primary" style={{ width: "100%", marginTop: "14px" }} onClick={finishMockQuiz}>
+                      Submit practice quiz
+                    </button>
+                  </aside>
+
+                  <section className="portal-questions">
+                    {mockScrollMode === "single" ? (
+                      (() => {
+                        const q = mockQuestionsList[mockCurrentIndex];
+                        if (!q) return null;
+                        return (
+                          <article className="portal-question" key={q.id}>
+                            <span className="eyebrow">
+                              QUESTION {mockCurrentIndex + 1} OF {mockQuestionsList.length} · {q.topic}
+                            </span>
+                            <h2>{q.stem}</h2>
+                            <div className="portal-options">
+                              {q.options.map((opt: string, j: number) => (
+                                <label key={j} className={mockAnswers[q.id] === j ? "chosen" : ""}>
+                                  <input
+                                    type="radio"
+                                    name={q.id}
+                                    checked={mockAnswers[q.id] === j}
+                                    onChange={() => setMockAnswers({ ...mockAnswers, [q.id]: j })}
+                                  />
+                                  <span className="option-letter">{"ABCD"[j]}</span>
+                                  <span>{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "24px" }}>
+                              <button
+                                className="outline"
+                                disabled={mockCurrentIndex === 0}
+                                onClick={() => setMockCurrentIndex(mockCurrentIndex - 1)}
+                              >
+                                Previous
+                              </button>
+                              {mockCurrentIndex < mockQuestionsList.length - 1 ? (
+                                <button className="primary" onClick={() => setMockCurrentIndex(mockCurrentIndex + 1)}>
+                                  Next question
+                                </button>
+                              ) : (
+                                <button className="primary" onClick={finishMockQuiz}>
+                                  Submit answers
+                                </button>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        {mockQuestionsList.map((q, i) => (
+                          <article className="portal-question" id={`mock-q-${i}`} key={q.id}>
+                            <span className="eyebrow">
+                              QUESTION {i + 1} OF {mockQuestionsList.length} · {q.topic}
+                            </span>
+                            <h2>{q.stem}</h2>
+                            <div className="portal-options">
+                              {q.options.map((opt: string, j: number) => (
+                                <label key={j} className={mockAnswers[q.id] === j ? "chosen" : ""}>
+                                  <input
+                                    type="radio"
+                                    name={q.id}
+                                    checked={mockAnswers[q.id] === j}
+                                    onChange={() => setMockAnswers({ ...mockAnswers, [q.id]: j })}
+                                  />
+                                  <span className="option-letter">{"ABCD"[j]}</span>
+                                  <span>{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </article>
+                        ))}
+                        <button className="primary portal-submit" onClick={finishMockQuiz}>
+                          Submit practice quiz
+                        </button>
+                      </>
+                    )}
+                  </section>
+                </div>
+              </div>
+            )}
+
+            {/* Mock Quiz Result & Review Screen */}
+            {mockResult && (
+              <div
+                className="modal-backdrop"
+                onMouseDown={e => {
+                  if (e.target === e.currentTarget) setMockResult(null);
+                }}
+              >
+                <section
+                  className="modal form-card"
+                  role="dialog"
+                  aria-modal="true"
+                  style={{ maxWidth: "860px", width: "96%", maxHeight: "94vh", display: "flex", flexDirection: "column" }}
+                >
+                  <div className="modal-head">
+                    <div>
+                      <span className="eyebrow">PRACTICE EVALUATION · UNGRADED</span>
+                      <h2>Practice test scorecard</h2>
+                    </div>
+                    <button className="icon-button" aria-label="Close" onClick={() => setMockResult(null)}>
+                      <X />
+                    </button>
+                  </div>
+
+                  <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "18px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" }}>
+                      <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center", background: "#f8fafc" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Final Score</span>
+                        <strong style={{ fontSize: "22px", display: "block" }}>
+                          {mockResult.score} / {mockResult.total}
+                        </strong>
+                        <small style={{ color: "#10b981", fontWeight: 600 }}>{mockResult.pct}% Accuracy</small>
+                      </article>
+                      <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Correct</span>
+                        <strong style={{ fontSize: "22px", display: "block", color: "#10b981" }}>{mockResult.score}</strong>
+                      </article>
+                      <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Wrong</span>
+                        <strong style={{ fontSize: "22px", display: "block", color: "#ef4444" }}>{mockResult.wrong}</strong>
+                      </article>
+                      <article className="card" style={{ padding: "12px", margin: 0, textAlign: "center" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted-fg,#64748b)" }}>Skipped</span>
+                        <strong style={{ fontSize: "22px", display: "block", color: "#64748b" }}>{mockResult.skipped}</strong>
+                      </article>
+                    </div>
+
+                    {/* Topic-Wise Breakdown */}
+                    {mockResult.topicStats && mockResult.topicStats.length > 0 && (
+                      <div className="card" style={{ padding: "14px", margin: 0, background: "var(--surface,#fff)" }}>
+                        <strong style={{ fontSize: "13px", display: "block", marginBottom: "8px" }}>Topic-Wise Accuracy (UPSC Practice)</strong>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
+                          {mockResult.topicStats.map((stat: any) => (
+                            <div key={stat.topic} style={{ fontSize: "12px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                                <span>{stat.topic}</span>
+                                <b>{stat.correct}/{stat.total} ({stat.pct}%)</b>
+                              </div>
+                              <div style={{ height: "6px", width: "100%", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${stat.pct}%`,
+                                    background: stat.pct >= 70 ? "#10b981" : stat.pct >= 40 ? "#f59e0b" : "#ef4444"
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Review Every Question */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                      {mockResult.questions.map((q: any, i: number) => {
+                        const isCorrect = q.user_pick === q.correct_index;
+                        const isSkipped = q.user_pick === undefined;
+
+                        return (
+                          <article
+                            key={q.id}
+                            className="card"
+                            style={{
+                              padding: "16px",
+                              margin: 0,
+                              borderLeft: isCorrect ? "4px solid #10b981" : isSkipped ? "4px solid #64748b" : "4px solid #ef4444"
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
+                              <strong>{i + 1}. {q.stem}</strong>
+                              <span className={`tag ${isCorrect ? "approved" : isSkipped ? "pending" : "revision_requested"}`}>
+                                {isCorrect ? "Correct" : isSkipped ? "Skipped" : "Wrong"}
+                              </span>
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "10px 0" }}>
+                              {q.options.map((opt: string, optIdx: number) => {
+                                const isCorrectOpt = optIdx === q.correct_index;
+                                const isUserPick = optIdx === q.user_pick;
+                                return (
+                                  <div
+                                    key={optIdx}
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderRadius: "6px",
+                                      fontSize: "13px",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      border: isCorrectOpt
+                                        ? "1px solid #10b981"
+                                        : isUserPick && !isCorrect
+                                        ? "1px solid #ef4444"
+                                        : "1px solid var(--border,#e2e8f0)",
+                                      background: isCorrectOpt
+                                        ? "#f0fdf4"
+                                        : isUserPick && !isCorrect
+                                        ? "#fef2f2"
+                                        : "transparent"
+                                    }}
+                                  >
+                                    <span><b>{"ABCD"[optIdx]}.</b> {opt}</span>
+                                    {isCorrectOpt && (
+                                      <span style={{ color: "#10b981", fontSize: "12px", fontWeight: 600, display: "flex", alignItems: "center", gap: "3px" }}>
+                                        <CheckCircle size={14} /> Correct Answer
+                                      </span>
+                                    )}
+                                    {isUserPick && !isCorrectOpt && (
+                                      <span style={{ color: "#ef4444", fontSize: "12px", fontWeight: 600, display: "flex", alignItems: "center", gap: "3px" }}>
+                                        <XCircle size={14} /> Your Choice
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {q.explanation && (
+                              <p style={{ fontSize: "13px", background: "#f8fafc", padding: "10px", borderRadius: "6px", margin: "8px 0" }}>
+                                <b>Explanation:</b> {q.explanation}
+                              </p>
+                            )}
+                            <Source value={q.source_url} />
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                      <button className="primary" onClick={() => { setMockResult(null); setMockModalOpen(true); }}>
+                        Start another practice quiz
+                      </button>
+                      <button className="outline" onClick={() => setMockResult(null)}>
+                        Back to Question Bank
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
           </>
         )}
 
