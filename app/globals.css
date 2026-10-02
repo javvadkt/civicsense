@@ -348,3 +348,172 @@
 @media(max-width:768px){
   .qb-filter-grid{grid-template-columns:1fr}
 }
+/* ===== Mobile Top Bar & Profile Dropdown (Screens <= 750px) ===== */
+.side-top-row {
+  display: contents;
+}
+.mobile-profile-container {
+  display: none;
+}
+
+@media (max-width: 750px) {
+  .side {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: #ffffff;
+    min-height: 0;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) clamp(14px, 4vw, 20px) 10px;
+    border-bottom: 1px solid #e3e9f2;
+    box-shadow: 0 2px 10px rgba(24, 60, 103, 0.05);
+  }
+
+  .side-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 10px;
+  }
+
+  .brand {
+    padding: 0;
+    gap: 10px;
+  }
+  .brand .logo {
+    height: 34px;
+    width: 34px;
+    border-radius: 9px;
+  }
+  .brand strong {
+    font-size: 15px;
+  }
+  .brand small {
+    display: none;
+  }
+
+  .mobile-profile-container {
+    display: block;
+    position: relative;
+  }
+
+  .mobile-profile-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid #d5deea;
+    background: #f8fafc;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1c548c;
+  }
+
+  .mobile-profile-avatar {
+    height: 24px;
+    width: 24px;
+    border-radius: 50%;
+    background: #193e72;
+    color: #ffffff;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .mobile-profile-name {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-profile-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    background: #ffffff;
+    border: 1px solid #dbe4ef;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(16, 36, 61, 0.16);
+    min-width: 210px;
+    padding: 12px;
+    z-index: 45;
+    animation: toast-in 0.15s ease-out;
+  }
+
+  .mobile-profile-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .mobile-profile-header strong {
+    font-size: 14px;
+    color: #172b45;
+  }
+  .mobile-profile-header small {
+    font-size: 12px;
+    color: #64748b;
+  }
+  .mobile-pill {
+    width: fit-content;
+    padding: 3px 8px;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .mobile-divider {
+    border: 0;
+    border-top: 1px solid #edf1f7;
+    margin: 10px 0;
+  }
+
+  .mobile-signout-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: #a4342b;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 0;
+  }
+
+  .desktop-identity {
+    display: none !important;
+  }
+}
+
+/* ===== Duty Calendar: Report Leave & Summary ===== */
+.dc-leave-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  height: 42px;
+}
+
+.dc-badge {
+  background: #1d548e;
+  color: #ffffff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.dq-summary {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+}
