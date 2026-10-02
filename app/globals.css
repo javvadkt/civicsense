@@ -294,3 +294,46 @@
   .bk-row{grid-template-columns:96px 1fr}
   .dq-list li{flex-wrap:wrap}
 }
+/* ===== Overview tab v2 styles ===== */
+.card-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-head-row h3{margin:4px 0 0;font-size:20px}
+.muted-desc{color:#64758a;margin:6px 0 0;font-size:14px}
+
+/* Today's Duty Card */
+.today-duty-card{border-left:4px solid #1d548e;padding:20px 22px}
+.today-duty-body{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #edf1f6}
+.today-duty-meta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:14px;color:#475569}
+.today-duty-meta strong{color:#1e293b}
+.today-duty-banner{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:20px;background:#e8f4ed;color:#1e5e38;font-size:13px;font-weight:700}
+
+/* Quiz Scorecard */
+.quiz-scorecard{border-left:4px solid #2563eb;padding:20px 22px}
+.scorecard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:10px}
+.scorecard-stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;display:grid;gap:6px}
+.scorecard-stat span{color:#64748b;font-size:13px;font-weight:600}
+.scorecard-stat strong{font-size:24px;color:#0f172a;font-variant-numeric:tabular-nums}
+.scorecard-stat strong i{font-style:normal;font-size:16px;color:#64748b;font-weight:500}
+.scorecard-stat small{color:#64748b;font-size:12px}
+
+/* My Duties List */
+.my-duties-card{padding:20px 22px}
+.my-duties-list{display:grid;gap:8px;margin-top:10px;max-height:460px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:12px;padding:6px;background:#fff}
+.my-duty-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:8px;border:1px solid transparent;background:#fff;transition:background .15s}
+.my-duty-row:not(:last-child){border-bottom:1px solid #f1f5f9}
+.my-duty-row.live{background:#f0f7ff;border-color:#bae6fd}
+.my-duty-row.upcoming{background:#ffffff}
+.my-duty-row.past{opacity:.62;background:#fafafa}
+.my-duty-info{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.my-duty-date strong{display:block;font-size:14px;color:#1e293b}
+.my-duty-date small{display:block;font-size:12px;color:#64748b}
+.my-duty-target{font-size:13px;color:#475569;background:#f1f5f9;padding:4px 8px;border-radius:6px}
+.my-duty-badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.status-live{background:#1d548e;color:#ffffff}
+
+@media(max-width:640px){
+  .scorecard-grid{grid-template-columns:1fr}
+  .today-duty-body{flex-direction:column;align-items:flex-start}
+  .my-duty-row{flex-direction:column;align-items:flex-start;gap:8px}
+  .my-duty-info{width:100%;justify-content:space-between}
+  .my-duty-badges{align-self:flex-start}
+}
