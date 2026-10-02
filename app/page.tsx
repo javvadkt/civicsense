@@ -359,6 +359,14 @@ export default function Home() {
     [attendanceQuiz, setAttendanceQuiz] = useState<string | null>(null),
     [attendance, setAttendance] = useState<any[]>([]),
     [enrollmentEdits, setEnrollmentEdits] = useState<Record<string, string>>({});
+  // Mobile Profile Menu State (screens <= 750px)
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Question Bank Kebab & Modal Delete State
+  const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
+  const [deleteQuestionTarget, setDeleteQuestionTarget] = useState<Question | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [quizTitle, setQuizTitle] = useState(""),
     [quizKind, setQuizKind] = useState("weekly"),
     [quizSpecialFilter, setQuizSpecialFilter] = useState("all"),
@@ -904,13 +912,31 @@ useEffect(() => {
     return () => window.clearInterval(id);
   }, []);
 
-  // Global click listener to close dropdown menu
+  // Global click listeners to close dropdown menus
   useEffect(() => {
-    if (!menuQuizId) return;
-    const closeMenu = () => setMenuQuizId(null);
-    window.addEventListener("click", closeMenu);
-    return () => window.removeEventListener("click", closeMenu);
-  }, [menuQuizId]);
+    if (!menuQuizId && !bankMenuQId && !mobileProfileOpen) return;
+    const closeMenus = (e: MouseEvent) => {
+      if (menuQuizId) setMenuQuizId(null);
+      if (bankMenuQId) setBankMenuQId(null);
+      if (mobileProfileOpen && mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileProfileOpen(false);
+      }
+    };
+    window.addEventListener("click", closeMenus);
+    return () => window.removeEventListener("click", closeMenus);
+  }, [menuQuizId, bankMenuQId, mobileProfileOpen]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setBankMenuQId(null);
+        setMobileProfileOpen(false);
+        if (deleteQuestionTarget && !deleteBusy) setDeleteQuestionTarget(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteQuestionTarget, deleteBusy]);
 
   const flash = (s: string) => {
     setNotice(s);
@@ -1861,15 +1887,63 @@ function logout() {
   return (
     <main className="shell">
       <aside className="side">
-        <div className="brand">
-          <span className="logo">
-            <BookOpen />
-          </span>
-          <span>
-            <strong>CivicPrep</strong>
-            <small>Current affairs hub</small>
-          </span>
+        <div className="side-top-row">
+          <div className="brand">
+            <span className="logo">
+              <BookOpen />
+            </span>
+            <span>
+              <strong>CivicPrep</strong>
+              <small>Current affairs hub</small>
+            </span>
+          </div>
+
+          {/* Mobile Profile Trigger (Visible only on screens <= 750px) */}
+          <div className="mobile-profile-container" ref={mobileMenuRef}>
+            <button
+              type="button"
+              className="mobile-profile-btn"
+              onClick={e => {
+                e.stopPropagation();
+                setMobileProfileOpen(o => !o);
+              }}
+              aria-label="Account profile and options"
+            >
+              <span className="mobile-profile-avatar">
+                {profile.full_name.trim().slice(0, 2).toUpperCase()}
+              </span>
+              <span className="mobile-profile-name">{profile.full_name.split(" ")[0]}</span>
+              <ChevronDown size={14} />
+            </button>
+
+            {mobileProfileOpen && (
+              <div
+                className="mobile-profile-dropdown"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="mobile-profile-header">
+                  <strong>{profile.full_name}</strong>
+                  {profile.enrollment_number && (
+                    <small>Roll: {profile.enrollment_number}</small>
+                  )}
+                  <span className="pill mobile-pill">{labels[profile.role]}</span>
+                </div>
+                <hr className="mobile-divider" />
+                <button
+                  type="button"
+                  className="mobile-signout-btn"
+                  onClick={() => {
+                    setMobileProfileOpen(false);
+                    logout();
+                  }}
+                >
+                  <LogOut size={15} /> Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
         <nav>
           {links.map(x => {
             const Icon = navIcons[x];
@@ -1893,7 +1967,9 @@ function logout() {
             );
           })}
         </nav>
-        <div className="identity">
+
+        {/* Desktop Identity Box (Hidden on screens <= 750px) */}
+        <div className="identity desktop-identity">
           <strong>
             {profile.full_name}
             {profile.enrollment_number ? ` · ${profile.enrollment_number}` : ""}
@@ -2015,28 +2091,91 @@ function logout() {
                 )}
               </section>
 
-              {/* 4 Stat Cards */}
+             {/* 4 Stat Cards */}
               <div className="stats">
-                <article>
-                  <span>Approved questions</span>
-                  <strong>{approved.length}</strong>
-                  <small>Available for study</small>
-                </article>
-                <article>
-                  <span>My contributions</span>
-                  <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
-                  <small>All statuses</small>
-                </article>
-                <article>
-                  <span>{review ? "Needs review" : "Live quizzes"}</span>
-                  <strong>{review ? pending.length : liveUnsubmitted}</strong>
-                  <small>{review ? "Submitted questions" : "Open now, not yet taken"}</small>
-                </article>
-                <article>
-                  <span>My next duty</span>
-                  <strong>{duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}</strong>
-                  <small>Five questions per day</small>
-                </article>
+                {review ? (
+                  (() => {
+                    const pendingNew = questions.filter(q => q.status === "pending").length;
+                    const revisionReq = questions.filter(q => q.status === "revision_requested").length;
+                    const conducted = quizzes.filter(
+                      q => q.published && (clock > new Date(q.closes_at).getTime() || Boolean((q as any).ended_early_at))
+                    );
+                    const waitingPublish = conducted.filter(
+                      q => q.result_visibility === "after_release" && !q.results_published
+                    ).length;
+                    const scheduled = quizzes
+                      .filter(q => q.published && clock < new Date(q.opens_at).getTime() && !(q as any).ended_early_at)
+                      .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
+                    const nextUp = scheduled[0];
+
+                    return (
+                      <>
+                        <article>
+                          <span>Approved questions</span>
+                          <strong>{approved.length}</strong>
+                          <small>Available for study</small>
+                        </article>
+                        <article
+                          style={{ cursor: "pointer" }}
+                          onClick={() => setView("Review queue")}
+                          title="Click to open Review queue"
+                        >
+                          <span>Questions to approve</span>
+                          <strong>{pending.length}</strong>
+                          <small>
+                            {pendingNew} new · {revisionReq} correction{revisionReq === 1 ? "" : "s"}
+                          </small>
+                        </article>
+                        <article>
+                          <span>Quizzes conducted</span>
+                          <strong>{conducted.length}</strong>
+                          <small>
+                            {waitingPublish > 0
+                              ? `${waitingPublish} result${waitingPublish === 1 ? "" : "s"} waiting to publish`
+                              : "All results released"}
+                          </small>
+                        </article>
+                        <article>
+                          <span>Quizzes scheduled</span>
+                          <strong>{scheduled.length}</strong>
+                          <small>
+                            {nextUp
+                              ? `Next: ${nextUp.title} · ${new Date(nextUp.opens_at).toLocaleDateString([], {
+                                  month: "short",
+                                  day: "numeric"
+                                })}`
+                              : "None scheduled"}
+                          </small>
+                        </article>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <article>
+                      <span>Approved questions</span>
+                      <strong>{approved.length}</strong>
+                      <small>Available for study</small>
+                    </article>
+                    <article>
+                      <span>My contributions</span>
+                      <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
+                      <small>All statuses</small>
+                    </article>
+                    <article>
+                      <span>Live quizzes</span>
+                      <strong>{liveUnsubmitted}</strong>
+                      <small>Open now, not yet taken</small>
+                    </article>
+                    <article>
+                      <span>My next duty</span>
+                      <strong>
+                        {duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}
+                      </strong>
+                      <small>Five questions per day</small>
+                    </article>
+                  </>
+                )}
               </div>
 
               {/* Quiz Scorecard (Student and Student Leader) */}
@@ -2280,8 +2419,8 @@ function logout() {
                 {bankLoading && <span className="muted"><RefreshCw size={14} /> Updating list…</span>}
               </div>
 
-              {bankQuestions.map(q => {
-                const canEdit = review || (q.author_id === profile.id && ["pending", "revision_requested"].includes(q.status));
+             {bankQuestions.map(q => {
+                const canStudentEdit = !review && q.author_id === profile.id && ["pending", "revision_requested"].includes(q.status);
                 const authorDisplay = q.author?.full_name ? memberName(q.author_id, q.author.full_name) : "Contributor";
                 const createdDate = new Date(q.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
@@ -2304,10 +2443,97 @@ function logout() {
                           <span>{createdDate}</span>
                         </small>
                       </div>
-                      <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                        <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
+                        {/* Kebab menu on summary row for teachers and admins */}
+                        {review && (
+                          <div
+                            className="qz-menu-container"
+                            style={{ position: "relative" }}
+                            onClick={e => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="icon-button"
+                              style={{ width: "32px", height: "32px", padding: 0 }}
+                              aria-label="Question actions"
+                              onClick={e => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setBankMenuQId(bankMenuQId === q.id ? null : q.id);
+                              }}
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+
+                            {bankMenuQId === q.id && (
+                              <div
+                                className="qz-pop"
+                                style={{
+                                  position: "absolute",
+                                  right: 0,
+                                  top: "calc(100% + 4px)",
+                                  background: "var(--surface, #ffffff)",
+                                  border: "1px solid var(--border, #e2e8f0)",
+                                  borderRadius: "8px",
+                                  boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+                                  minWidth: "160px",
+                                  zIndex: 30,
+                                  overflow: "hidden",
+                                  display: "flex",
+                                  flexDirection: "column"
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className="plain"
+                                  style={{
+                                    textAlign: "left",
+                                    padding: "10px 14px",
+                                    fontSize: "13px",
+                                    width: "100%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                  }}
+                                  onClick={() => {
+                                    setBankMenuQId(null);
+                                    openQuestion(q);
+                                  }}
+                                >
+                                  <Edit size={14} /> Edit question
+                                </button>
+                                <button
+                                  type="button"
+                                  className="plain"
+                                  style={{
+                                    textAlign: "left",
+                                    padding: "10px 14px",
+                                    fontSize: "13px",
+                                    width: "100%",
+                                    color: "#ef4444",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                  }}
+                                  onClick={() => {
+                                    setBankMenuQId(null);
+                                    setDeleteQuestionTarget(q);
+                                  }}
+                                >
+                                  <X size={14} /> Delete question
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </summary>
 
-                    {/* Answer Options: Highlight correct answer in green with checkmark for ALL roles */}
+                    {/* Answer Options */}
                     <div className="qb-options-list" style={{ marginTop: "12px", display: "grid", gap: "8px" }}>
                       {q.options.map((opt, optIdx) => {
                         const isCorrect = optIdx === q.correct_index;
@@ -2349,25 +2575,12 @@ function logout() {
                       <Source value={q.source_url} />
                     </div>
 
-                    {canEdit && (
+                    {/* Students keep their plain edit button */}
+                    {canStudentEdit && (
                       <div className="actions" style={{ marginTop: "12px" }}>
                         <button className="outline" onClick={() => openQuestion(q)}>
-                          Edit question
+                          Edit
                         </button>
-                        {review && (
-                          <button
-                            className="danger-outline"
-                            onClick={async () => {
-                              if (confirm("Delete this question and remove it from quiz question lists?")) {
-                                if (await change(route("questions", `id=eq.${q.id}`), null, "DELETE")) {
-                                  loadQuestionBank(bankOffset, false);
-                                }
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        )}
                       </div>
                     )}
                   </details>
@@ -4295,28 +4508,101 @@ function logout() {
                   }
                   aria-label="Question import text"
                 />
-                <div className="import-actions">
-                  <label className="outline file-button">
-                    <FileQuestion size={15} /> Choose file
-                    <input
-                      type="file"
-                      accept=".json,.csv,.txt,application/json,text/csv,text/plain"
-                      onChange={e => chooseImportFile(e.target.files?.[0])}
-                    />
-                  </label>
-                  <button className="primary" disabled={importBusy || !importText.trim()} onClick={importQuestions}>
-                    {importBusy ? "Importing…" : "Import to review queue"}
-                  </button>
-                </div>
-                {importMessage && <p className="success">{importMessage}</p>}
+              <div className="import-actions">
+                <label className="outline file-button">
+                  <FileQuestion size={15} /> Choose file
+                  <input
+                    type="file"
+                    accept=".json,.csv,.txt,application/json,text/csv,text/plain"
+                    onChange={e => chooseImportFile(e.target.files?.[0])}
+                  />
+                </label>
+                <button className="primary" disabled={importBusy || !importText.trim()} onClick={importQuestions}>
+                  {importBusy ? "Importing…" : "Import to review queue"}
+                </button>
               </div>
+              {importMessage && <p className="success">{importMessage}</p>}
             </div>
-          </section>
-        </div>
-      )}
+          </div>
+        </section>
+      </div>
+    )}
 
-      {/* Active Quiz Screen with Autosave */}
-      {activeQuiz && (
+    {/* Delete Question Confirmation Modal (Admin & Teacher) */}
+    {deleteQuestionTarget && (
+      <div
+        className="modal-backdrop"
+        onMouseDown={e => {
+          if (e.target === e.currentTarget && !deleteBusy) setDeleteQuestionTarget(null);
+        }}
+      >
+        <section className="modal form-card" role="dialog" aria-modal="true" style={{ maxWidth: "480px" }}>
+          <div className="modal-head">
+            <div>
+              <span className="eyebrow" style={{ color: "#ef4444" }}>CONFIRM DELETION</span>
+              <h2>Delete Question?</h2>
+            </div>
+            <button
+              className="icon-button"
+              aria-label="Close"
+              disabled={deleteBusy}
+              onClick={() => setDeleteQuestionTarget(null)}
+            >
+              <X />
+            </button>
+          </div>
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+            <p style={{ margin: 0, fontSize: "14px", color: "#334155" }}>
+              Are you sure you want to permanently delete this question?
+            </p>
+            <div style={{ padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+              <strong style={{ fontSize: "13px", display: "block", color: "#0f172a", marginBottom: "4px" }}>
+                {deleteQuestionTarget.stem}
+              </strong>
+              <small style={{ color: "#64748b" }}>{deleteQuestionTarget.topic}</small>
+            </div>
+            <div className="card" style={{ padding: "12px", background: "#fef2f2", border: "1px solid #fee2e2", margin: 0 }}>
+              <p style={{ margin: 0, fontSize: "13px", color: "#991b1b" }}>
+                This question will also be removed from any quiz that uses it.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
+              <button
+                className="outline"
+                disabled={deleteBusy}
+                onClick={() => setDeleteQuestionTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-outline"
+                style={{ background: "#ef4444", color: "#fff", borderColor: "#ef4444" }}
+                disabled={deleteBusy}
+                onClick={async () => {
+                  setDeleteBusy(true);
+                  try {
+                    if (await change(route("questions", `id=eq.${deleteQuestionTarget.id}`), null, "DELETE")) {
+                      flash("Question deleted.");
+                      setDeleteQuestionTarget(null);
+                      await loadQuestionBank(bankOffset, false);
+                    }
+                  } catch (e: any) {
+                    setError(e.message || "Failed to delete question.");
+                  } finally {
+                    setDeleteBusy(false);
+                  }
+                }}
+              >
+                {deleteBusy ? "Deleting…" : "Yes, delete question"}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    )}
+
+    {/* Active Quiz Screen with Autosave */}
+    {activeQuiz && (
         <div className="quiz-portal">
           <header className="portal-header">
             <div>
