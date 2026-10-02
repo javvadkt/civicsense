@@ -107,6 +107,15 @@ type Availability = {
   already_assigned: boolean;
 };
 
+type QuizSummary = {
+  attended: number;
+  eligible: number;
+  marks_got: number;
+  marks_total: number;
+  percent: number;
+  pending_results: number;
+};
+
 const dutyStatuses: { [key: string]: string } = {
   assigned: "Assigned",
   confirmed: "Confirmed",
@@ -299,6 +308,8 @@ export default function Home() {
     [notice, setNotice] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]),
     [duties, setDuties] = useState<Duty[]>([]),
+    [myDuties, setMyDuties] = useState<Duty[]>([]),
+    [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null),
     [quizzes, setQuizzes] = useState<Quiz[]>([]),
     [people, setPeople] = useState<Profile[]>([]),
     [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -402,13 +413,16 @@ export default function Home() {
     if (!me?.active) {
       setQuestions([]);
       setDuties([]);
+      setMyDuties([]);
+      setQuizSummary(null);
       setQuizzes([]);
       setPeople([]);
       setAttempts([]);
       return;
     }
     const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
-    const [q, d, z, m, a] = await Promise.all([
+    const canTakeQuizzes = ["student", "student_leader"].includes(me.role);
+    const [q, d, z, m, a, myDutyRows, summaryRes] = await Promise.all([
       me.role === "super_admin" || me.role === "supervisor"
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
             rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
@@ -434,15 +448,29 @@ export default function Home() {
             s.access_token
           )
         : Promise.resolve([]),
-      request(route("quiz_attempts", `select=quiz_id,submitted_at,score&student_id=eq.${me.id}`), s.access_token)
+      request(route("quiz_attempts", `select=quiz_id,submitted_at,score&student_id=eq.${me.id}`), s.access_token),
+      canTakeQuizzes
+        ? request(
+            route(
+              "duties",
+              `select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note&student_id=eq.${me.id}&order=duty_date.desc&limit=200`
+            ),
+            s.access_token
+          ).catch(() => [])
+        : Promise.resolve([]),
+      canTakeQuizzes
+        ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}).catch(() => null)
+        : Promise.resolve(null)
     ]);
     setQuestions(q || []);
     setDuties(d || []);
     setQuizzes(z || []);
     setPeople(m || []);
     setAttempts(a || []);
+    setMyDuties(myDutyRows || []);
+    setQuizSummary(summaryRes || null);
   }, []);
-
+  
   useEffect(() => {
     (async () => {
       try {
@@ -748,12 +776,14 @@ export default function Home() {
     }
   }
 
-  function logout() {
+function logout() {
     request("/auth/v1/logout", token, "POST").catch(() => {});
     localStorage.removeItem("civicprep_session");
     setSession(null);
     setProfile(null);
     setQuestions([]);
+    setMyDuties([]);
+    setQuizSummary(null);
     setView("Overview");
   }
 
@@ -1674,77 +1704,195 @@ export default function Home() {
           )}
         </div>
 
-        {view === "Overview" && (
-          <>
-            <div className="intro">
-              <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
-              <p>
-                {profile.role === "super_admin"
-                  ? "Create and activate accounts, oversee question review, and manage quizzes."
-                  : profile.role === "supervisor"
-                  ? "Review and revise questions, monitor duty progress, and publish class quiz results."
-                  : profile.role === "student_leader"
-                  ? "Do your own question duty like every student, and help run the rotation: assign, swap and edit duties."
-                  : "Confirm your assigned duty, submit your questions, and complete live class quizzes."}
-              </p>
-            </div>
-            <div className="stats">
-              <article>
-                <span>Approved questions</span>
-                <strong>{approved.length}</strong>
-                <small>Available for study</small>
-              </article>
-              <article>
-                <span>My contributions</span>
-                <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
-                <small>All statuses</small>
-              </article>
-              <article>
-                <span>{review ? "Needs review" : "Live quizzes"}</span>
-                <strong>{review ? pending.length : liveUnsubmitted}</strong>
-                <small>{review ? "Submitted questions" : "Open now, not yet taken"}</small>
-              </article>
-              <article>
-                <span>My next duty</span>
-                <strong>{duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}</strong>
-                <small>Five questions per day</small>
-              </article>
-            </div>
-            <div className="columns">
-              <section className="card">
-                <h3>Recent questions</h3>
-                {questions.slice(0, 5).map(q => (
-                  <div className="row" key={q.id}>
-                    <div>
-                      <strong>{q.stem}</strong>
-                      <small>
-                        {q.topic} · {memberName(q.author_id, q.author?.full_name || "Contributor")}
-                      </small>
-                    </div>
-                    <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
+      {view === "Overview" && (() => {
+          const todayDuty = duties.find(d => d.duty_date === today);
+          const isViewerToday = todayDuty?.student_id === profile.id;
+          const todayPerson = todayDuty
+            ? (todayDuty.student?.full_name || people.find(p => p.id === todayDuty.student_id)?.full_name || "Student")
+            : null;
+          const todayEnrollment = todayDuty
+            ? (todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id))
+            : null;
+          const canTakeQuizzes = ["student", "student_leader"].includes(profile.role);
+          const isStudent = profile.role === "student";
+
+          const sortedDuties = [...myDuties].sort((a, b) => {
+            const aFuture = a.duty_date >= today;
+            const bFuture = b.duty_date >= today;
+            if (aFuture && bFuture) return a.duty_date.localeCompare(b.duty_date);
+            if (aFuture) return -1;
+            if (bFuture) return 1;
+            return b.duty_date.localeCompare(a.duty_date);
+          });
+
+          return (
+            <>
+              <div className="intro">
+                <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
+                <p>
+                  {profile.role === "super_admin"
+                    ? "Create and activate accounts, oversee question review, and manage quizzes."
+                    : profile.role === "supervisor"
+                    ? "Review and revise questions, monitor duty progress, and publish class quiz results."
+                    : profile.role === "student_leader"
+                    ? "Do your own question duty like every student, and help run the rotation: assign, swap and edit duties."
+                    : "Confirm your assigned duty, submit your questions, and complete live class quizzes."}
+                </p>
+              </div>
+
+              {/* Today's Duty Card (All Roles) */}
+              <section className="card today-duty-card">
+                <div className="card-head-row">
+                  <div>
+                    <span className="eyebrow">
+                      TODAY'S DUTY · {new Date(`${today}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                    </span>
+                    <h3>{todayDuty ? todayPerson : "No duty assigned today"}</h3>
                   </div>
-                ))}
-                {!questions.length && <Empty text="No questions yet. Add the first one in the question bank." />}
-              </section>
-              <section className="card">
-                <h3>Upcoming duties</h3>
-                {duties
-                  .filter(d => d.duty_date >= today)
-                  .slice(0, 5)
-                  .map(d => (
-                    <div className="row" key={d.id}>
-                      <div>
-                        <strong>{memberName(d.student_id, d.student?.full_name || "Student")}</strong>
-                        <small>{d.duty_date}</small>
-                      </div>
-                      <span>{d.target_count} questions</span>
+                  {todayDuty && (
+                    <span className={`duty-status status-${todayDuty.duty_status || "assigned"}`}>
+                      {dutyStatuses[todayDuty.duty_status] || "Assigned"}
+                    </span>
+                  )}
+                </div>
+                {todayDuty ? (
+                  <div className="today-duty-body">
+                    <div className="today-duty-meta">
+                      {todayEnrollment && (
+                        <span>
+                          <strong>Roll:</strong> {todayEnrollment}
+                        </span>
+                      )}
+                      <span>
+                        <strong>Target:</strong> {todayDuty.target_count} questions
+                      </span>
                     </div>
-                  ))}
-                {!duties.some(d => d.duty_date >= today) && <Empty text="No upcoming duties assigned." />}
+                    {isViewerToday && (
+                      <div className="today-duty-banner">
+                        <CheckCircle2 size={16} />
+                        <span>You are on duty today</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="muted-desc">No student is scheduled for question duty today.</p>
+                )}
               </section>
-            </div>
-          </>
-        )}
+
+              {/* 4 Stat Cards */}
+              <div className="stats">
+                <article>
+                  <span>Approved questions</span>
+                  <strong>{approved.length}</strong>
+                  <small>Available for study</small>
+                </article>
+                <article>
+                  <span>My contributions</span>
+                  <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
+                  <small>All statuses</small>
+                </article>
+                <article>
+                  <span>{review ? "Needs review" : "Live quizzes"}</span>
+                  <strong>{review ? pending.length : liveUnsubmitted}</strong>
+                  <small>{review ? "Submitted questions" : "Open now, not yet taken"}</small>
+                </article>
+                <article>
+                  <span>My next duty</span>
+                  <strong>{duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}</strong>
+                  <small>Five questions per day</small>
+                </article>
+              </div>
+
+              {/* Quiz Scorecard (Student and Student Leader) */}
+              {canTakeQuizzes && (
+                <section className="card quiz-scorecard">
+                  <div className="card-head-row">
+                    <div>
+                      <span className="eyebrow">ACADEMIC PERFORMANCE</span>
+                      <h3>Quiz scorecard</h3>
+                    </div>
+                    {quizSummary && quizSummary.pending_results > 0 && (
+                      <span className="tag pending">
+                        {quizSummary.pending_results} result{quizSummary.pending_results === 1 ? "" : "s"} pending
+                      </span>
+                    )}
+                  </div>
+                  {quizSummary ? (
+                    <div className="scorecard-grid">
+                      <article className="scorecard-stat">
+                        <span>Quizzes attended</span>
+                        <strong>
+                          {quizSummary.attended} <i>of {quizSummary.eligible}</i>
+                        </strong>
+                        <small>Published quizzes opened so far</small>
+                      </article>
+                      <article className="scorecard-stat">
+                        <span>Total marks</span>
+                        <strong>
+                          {quizSummary.marks_got} / {quizSummary.marks_total} <i>({quizSummary.percent}%)</i>
+                        </strong>
+                        <small>
+                          {quizSummary.pending_results > 0
+                            ? "Excludes quizzes awaiting result release"
+                            : "Across all completed eligible quizzes"}
+                        </small>
+                      </article>
+                    </div>
+                  ) : (
+                    <p className="muted-desc">Loading quiz performance summary…</p>
+                  )}
+                </section>
+              )}
+
+              {/* My Duties List (Student) */}
+              {isStudent && (
+                <section className="card my-duties-card">
+                  <div className="card-head-row">
+                    <div>
+                      <span className="eyebrow">SCHEDULE & HISTORY</span>
+                      <h3>My duties</h3>
+                    </div>
+                    <span className="pill">{myDuties.length} total</span>
+                  </div>
+                  <div className="my-duties-list">
+                    {sortedDuties.map(d => {
+                      const isLive = d.duty_date === today;
+                      const isOpenLate =
+                        d.duty_date < today && ["assigned", "confirmed", "in_progress"].includes(d.duty_status || "assigned");
+                      const isPast = d.duty_date < today;
+                      const rowClass = `my-duty-row ${isLive ? "live" : isPast ? "past" : "upcoming"}`;
+                      const formattedDate = new Date(`${d.duty_date}T12:00:00`).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short"
+                      });
+
+                      return (
+                        <div key={d.id} className={rowClass}>
+                          <div className="my-duty-info">
+                            <span className="my-duty-date">
+                              <strong>{formattedDate}</strong>
+                              <small>{d.duty_date}</small>
+                            </span>
+                            <span className="my-duty-target">{d.target_count} questions</span>
+                          </div>
+                          <div className="my-duty-badges">
+                            {isLive && <span className="duty-status status-live">Live</span>}
+                            <span className={`duty-status status-${isOpenLate ? "missed" : d.duty_status || "assigned"}`}>
+                              {dutyStatuses[d.duty_status] || d.duty_status}
+                              {isOpenLate ? " · Overdue" : ""}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!sortedDuties.length && <Empty text="No duties have been assigned to you." />}
+                  </div>
+                </section>
+              )}
+            </>
+          );
+        })()}
 
         {view === "Question bank" && (
           <>
