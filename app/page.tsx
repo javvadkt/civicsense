@@ -141,11 +141,7 @@ const dutyStatuses: { [key: string]: string } = {
   missed: "Missed"
 };
 
-const labels = {
-  supervisor: "Teacher",
-  student_leader: "Student leader",
-  student: "Student"
-};
+
 
 const topics = [
   "Polity",
