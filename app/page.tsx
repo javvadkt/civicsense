@@ -390,7 +390,7 @@ export default function Home() {
   const autosaveTimerRef = useRef<any>(null);
   const token = session?.access_token || "";
 
-  // Dedicated Question Bank State
+// Dedicated Question Bank State
   const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
   const [bankTotal, setBankTotal] = useState(0);
   const [bankUploaders, setBankUploaders] = useState<{ id: string; full_name: string; enrollment_number?: string | null }[]>([]);
@@ -411,6 +411,21 @@ export default function Home() {
   const [bankSort, setBankSort] = useState<"newest" | "oldest" | "topic" | "uploader" | "status">("newest");
   const [bankFilterPanelOpen, setBankFilterPanelOpen] = useState(false);
 
+  // Redesigned Question Bank Search & Quick Filters
+  const [bankQuick, setBankQuick] = useState<"all" | "mine" | "approved" | "pending" | "revision_requested">("all");
+  const [bankSearchInput, setBankSearchInput] = useState("");
+  const [bankDebouncedSearch, setBankDebouncedSearch] = useState("");
+  const [bankError, setBankError] = useState("");
+
+  // People Dialogs & Kebab States (Admin)
+  const [roleModalTarget, setRoleModalTarget] = useState<Profile | null>(null);
+  const [roleModalRole, setRoleModalRole] = useState<string>("student");
+  const [roleModalEnrollment, setRoleModalEnrollment] = useState<string>("" );
+  const [deactivateModalTarget, setDeactivateModalTarget] = useState<Profile | null>(null);
+  const [approveModalTarget, setApproveModalTarget] = useState<Profile | null>(null);
+  const [approveModalRole, setApproveModalRole] = useState<string>("student");
+  const [approveModalEnrollment, setApproveModalEnrollment] = useState<string>("" );
+  const [memberKebabId, setMemberKebabId] = useState<string | null>(null);
   // Self-Run Mock Quiz State (Student & Leader)
   const [mockModalOpen, setMockModalOpen] = useState(false);
   const [mockTopics, setMockTopics] = useState<string[]>([]);
@@ -575,16 +590,30 @@ useEffect(() => {
     }
   }, [view, session, profile?.active, load]);
 
+  // Debounce search input for Question Bank
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBankDebouncedSearch(bankSearchInput.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [bankSearchInput]);
+
   const loadQuestionBank = useCallback(async (offset = 0, append = false) => {
     if (!token) return;
     setBankLoading(true);
+    setBankError("");
     try {
+      const activeStatus = bankQuick === "approved" || bankQuick === "pending" || bankQuick === "revision_requested"
+        ? bankQuick
+        : bankStatus === "all" ? null : bankStatus;
+      const onlyMine = bankQuick === "mine" || bankOnlyMine;
+
       const res = await request("/rest/v1/rpc/get_question_bank", token, "POST", {
-        p_search: bankSearch.trim() || null,
+        p_search: bankDebouncedSearch || null,
         p_topic: bankTopic === "all" ? null : bankTopic,
         p_author_id: bankAuthorId === "all" ? null : bankAuthorId,
-        p_only_mine: bankOnlyMine,
-        p_status: bankStatus === "all" ? null : bankStatus,
+        p_only_mine: onlyMine,
+        p_status: activeStatus,
         p_is_special: bankSpecial === "all" ? null : bankSpecial === "special",
         p_date_from: bankDateFrom || null,
         p_date_to: bankDateTo || null,
@@ -605,13 +634,15 @@ useEffect(() => {
         setBankOffset(offset);
       }
     } catch (e: any) {
-      setError(e.message || "Failed to load question bank");
+      setBankError(e.message || "Failed to load question bank");
+      setBankQuestions([]);
     } finally {
       setBankLoading(false);
     }
   }, [
     token,
-    bankSearch,
+    bankDebouncedSearch,
+    bankQuick,
     bankTopic,
     bankAuthorId,
     bankOnlyMine,
@@ -631,7 +662,9 @@ useEffect(() => {
   }, [view, session, profile?.active, loadQuestionBank]);
 
   const resetBankFilters = () => {
-    setBankSearch("");
+    setBankSearchInput("");
+    setBankDebouncedSearch("");
+    setBankQuick("all");
     setBankTopic("all");
     setBankAuthorId("all");
     setBankOnlyMine(false);
@@ -1972,6 +2005,16 @@ function logout() {
          })}
         </nav>
 
+        {/* Pinned Desktop Profile / Sign out Box */}
+        <div className="desktop-identity identity">
+          <div className="identity-user">
+            <strong>{profile.full_name}</strong>
+            <small>{labels[profile.role]}{profile.enrollment_number ? ` · ${profile.enrollment_number}` : ""}</small>
+          </div>
+          <button type="button" onClick={logout} className="identity-signout">
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
       </aside>
 
       <div className="main">
@@ -2084,7 +2127,7 @@ function logout() {
                 )}
               </section>
 
-             {/* 4 Stat Cards */}
+             {/* 3 Stat Cards (Approved questions removed for all roles) */}
               <div className="stats">
                 {review ? (
                   (() => {
@@ -2103,11 +2146,6 @@ function logout() {
 
                     return (
                       <>
-                        <article>
-                          <span>Approved questions</span>
-                          <strong>{approved.length}</strong>
-                          <small>Available for study</small>
-                        </article>
                         <article
                           style={{ cursor: "pointer" }}
                           onClick={() => setView("Review queue")}
@@ -2145,11 +2183,6 @@ function logout() {
                   })()
                 ) : (
                   <>
-                    <article>
-                      <span>Approved questions</span>
-                      <strong>{approved.length}</strong>
-                      <small>Available for study</small>
-                    </article>
                     <article>
                       <span>My contributions</span>
                       <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
@@ -2280,27 +2313,49 @@ function logout() {
               </div>
             </div>
 
-            {/* Filter & Search Bar */}
+{/* Always Visible Filter Bar */}
             <section className="card qb-filter-card" style={{ padding: "16px", marginBottom: "16px" }}>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                {/* Search Box */}
                 <div style={{ position: "relative", flex: "1 1 240px", minWidth: "220px" }}>
                   <Search size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", opacity: 0.5 }} />
                   <input
                     type="search"
-                    placeholder="Search stem, options, explanation, source..."
-                    value={bankSearch}
-                    onChange={e => setBankSearch(e.target.value)}
+                    placeholder="Search question stem, options, explanation..."
+                    value={bankSearchInput}
+                    onChange={e => setBankSearchInput(e.target.value)}
                     style={{ paddingLeft: "36px", width: "100%", height: "42px" }}
                   />
                 </div>
+
+                {/* Quick Chips */}
+                <div className="qb-quick-chips">
+                  {[
+                    { id: "all", label: "All" },
+                    ...(!review ? [{ id: "mine", label: "Mine" }] : []),
+                    { id: "approved", label: "Approved" },
+                    { id: "pending", label: "Waiting" },
+                    { id: "revision_requested", label: "Needs revision" }
+                  ].map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`qb-quick-btn ${bankQuick === c.id ? "active" : ""}`}
+                      onClick={() => {
+                        setBankQuick(c.id as any);
+                        if (c.id === "all") {
+                          setBankStatus("all");
+                          setBankOnlyMine(false);
+                        }
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sort & More Filters Buttons */}
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                  <button
-                    className={bankFilterPanelOpen || activeFilterCount > 0 ? "primary" : "outline"}
-                    style={{ height: "42px", padding: "0 14px", borderRadius: "9px" }}
-                    onClick={() => setBankFilterPanelOpen(!bankFilterPanelOpen)}
-                  >
-                    <Filter size={15} /> Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}
-                  </button>
                   <select
                     value={bankSort}
                     onChange={e => setBankSort(e.target.value as any)}
@@ -2313,95 +2368,209 @@ function logout() {
                     <option value="uploader">Uploader (A–Z)</option>
                     <option value="status">Status</option>
                   </select>
-                  {activeFilterCount > 0 && (
-                    <button className="plain" onClick={resetBankFilters} style={{ padding: "8px", fontSize: "13px" }} title="Reset filters">
-                      <RotateCcw size={15} /> Reset
+
+                  <button
+                    className={bankFilterPanelOpen || activeFilterCount > 0 ? "primary" : "outline"}
+                    style={{ height: "42px", padding: "0 14px", borderRadius: "9px" }}
+                    onClick={() => setBankFilterPanelOpen(!bankFilterPanelOpen)}
+                  >
+                    <Filter size={15} /> More filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}
+                  </button>
+                </div>
+              </div>
+
+              {/* Active Filter Chips & Counter */}
+              <div className="qb-active-bar">
+                <span className="qb-count-text">
+                  Showing <b>{bankQuestions.length}</b> of <b>{bankTotal}</b> questions
+                </span>
+
+                <div className="qb-chip-list">
+                  {bankDebouncedSearch && (
+                    <span className="qb-chip">
+                      Search: &quot;{bankDebouncedSearch}&quot;
+                      <button onClick={() => { setBankSearchInput(""); setBankDebouncedSearch(""); }}>×</button>
+                    </span>
+                  )}
+                  {bankQuick !== "all" && (
+                    <span className="qb-chip">
+                      {bankQuick === "mine" ? "Mine only" : `Status: ${bankQuick.replace("_", " ")}`}
+                      <button onClick={() => setBankQuick("all")}>×</button>
+                    </span>
+                  )}
+                  {bankTopic !== "all" && (
+                    <span className="qb-chip">
+                      Topic: {bankTopic}
+                      <button onClick={() => setBankTopic("all")}>×</button>
+                    </span>
+                  )}
+                  {bankAuthorId !== "all" && (
+                    <span className="qb-chip">
+                      Uploader: {bankUploaders.find(u => u.id === bankAuthorId)?.full_name || "Author"}
+                      <button onClick={() => setBankAuthorId("all")}>×</button>
+                    </span>
+                  )}
+                  {bankDateFrom && (
+                    <span className="qb-chip">
+                      From: {bankDateFrom}
+                      <button onClick={() => setBankDateFrom("")}>×</button>
+                    </span>
+                  )}
+                  {bankDateTo && (
+                    <span className="qb-chip">
+                      To: {bankDateTo}
+                      <button onClick={() => setBankDateTo("")}>×</button>
+                    </span>
+                  )}
+                  {bankHasSource !== "all" && (
+                    <span className="qb-chip">
+                      Source: {bankHasSource === "yes" ? "With citation" : "No citation"}
+                      <button onClick={() => setBankHasSource("all")}>×</button>
+                    </span>
+                  )}
+                  {review && bankSpecial !== "all" && (
+                    <span className="qb-chip">
+                      Type: {bankSpecial}
+                      <button onClick={() => setBankSpecial("all")}>×</button>
+                    </span>
+                  )}
+                  {review && bankQuizUsage !== "all" && (
+                    <span className="qb-chip">
+                      Quiz: {bankQuizUsage === "used" ? "In quiz" : "Never used"}
+                      <button onClick={() => setBankQuizUsage("all")}>×</button>
+                    </span>
+                  )}
+
+                  {(activeFilterCount > 0 || bankDebouncedSearch || bankQuick !== "all") && (
+                    <button className="plain qb-clear-all" onClick={resetBankFilters}>
+                      Clear all
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Collapsible Filter Details */}
+              {/* More Filters Bottom Sheet / Panel */}
               {bankFilterPanelOpen && (
-                <div className="qb-filter-grid" style={{ marginTop: "14px", paddingTop: "14px", borderTop: "1px solid var(--border,#e2e8f0)" }}>
-                  <label>
-                    Topic
-                    <select value={bankTopic} onChange={e => setBankTopic(e.target.value)}>
-                      <option value="all">All topics</option>
-                      {topics.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </label>
+                <div className="qb-sheet-backdrop" onClick={e => { if (e.target === e.currentTarget) setBankFilterPanelOpen(false); }}>
+                  <div className="qb-sheet-panel">
+                    <div className="qb-sheet-head">
+                      <h3>More filters</h3>
+                      <button className="icon-button" aria-label="Close filters" onClick={() => setBankFilterPanelOpen(false)}>
+                        <X size={18} />
+                      </button>
+                    </div>
 
-                  <label>
-                    Uploader
-                    <select value={bankAuthorId} onChange={e => setBankAuthorId(e.target.value)}>
-                      <option value="all">All uploaders</option>
-                      {bankUploaders.map(u => (
-                        <option key={u.id} value={u.id}>
-                          {u.full_name}{u.enrollment_number ? ` (${u.enrollment_number})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <div className="qb-filter-grid">
+                      <label>
+                        Topic
+                        <select value={bankTopic} onChange={e => setBankTopic(e.target.value)}>
+                          <option value="all">All topics</option>
+                          {topics.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </label>
 
-                  <label>
-                    Status
-                    <select value={bankStatus} onChange={e => setBankStatus(e.target.value)}>
-                      <option value="all">All statuses</option>
-                      <option value="approved">Approved</option>
-                      <option value="pending">Waiting review</option>
-                      <option value="revision_requested">Needs revision</option>
-                    </select>
-                  </label>
+                      <label>
+                        Uploader
+                        <select value={bankAuthorId} onChange={e => setBankAuthorId(e.target.value)}>
+                          <option value="all">All uploaders</option>
+                          {bankUploaders.map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.full_name}{u.enrollment_number ? ` (${u.enrollment_number})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
 
-                  <label>
-                    Question type
-                    <select value={bankSpecial} onChange={e => setBankSpecial(e.target.value as any)}>
-                      <option value="all">All questions</option>
-                      <option value="special">Special questions only</option>
-                      <option value="standard">Standard only</option>
-                    </select>
-                  </label>
+                      <label>
+                        Upload date from
+                        <input
+                          type="date"
+                          value={bankDateFrom}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (bankDateTo && val > bankDateTo) {
+                              flash("Start date cannot be after end date.");
+                              return;
+                            }
+                            setBankDateFrom(val);
+                          }}
+                        />
+                      </label>
 
-                  <label>
-                    Upload date from
-                    <input type="date" value={bankDateFrom} onChange={e => setBankDateFrom(e.target.value)} />
-                  </label>
+                      <label>
+                        Upload date to
+                        <input
+                          type="date"
+                          value={bankDateTo}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (bankDateFrom && val < bankDateFrom) {
+                              flash("End date cannot be before start date.");
+                              return;
+                            }
+                            setBankDateTo(val);
+                          }}
+                        />
+                      </label>
 
-                  <label>
-                    Upload date to
-                    <input type="date" value={bankDateTo} onChange={e => setBankDateTo(e.target.value)} />
-                  </label>
+                      <label>
+                        Source citation
+                        <select value={bankHasSource} onChange={e => setBankHasSource(e.target.value as any)}>
+                          <option value="all">Any</option>
+                          <option value="yes">With source URL/citation</option>
+                          <option value="no">Without source</option>
+                        </select>
+                      </label>
 
-                  <label>
-                    Source citation
-                    <select value={bankHasSource} onChange={e => setBankHasSource(e.target.value as any)}>
-                      <option value="all">Any</option>
-                      <option value="yes">With source URL/citation</option>
-                      <option value="no">Without source</option>
-                    </select>
-                  </label>
+                      {review && (
+                        <label>
+                          Question type (Staff)
+                          <select value={bankSpecial} onChange={e => setBankSpecial(e.target.value as any)}>
+                            <option value="all">All questions</option>
+                            <option value="special">Special questions only</option>
+                            <option value="standard">Standard only</option>
+                          </select>
+                        </label>
+                      )}
 
-                  {review && (
-                    <label>
-                      Quiz usage (Staff)
-                      <select value={bankQuizUsage} onChange={e => setBankQuizUsage(e.target.value as any)}>
-                        <option value="all">All</option>
-                        <option value="used">Used in a quiz</option>
-                        <option value="unused">Never used in any quiz</option>
-                      </select>
-                    </label>
-                  )}
+                      {review && (
+                        <label>
+                          Quiz usage (Staff)
+                          <select value={bankQuizUsage} onChange={e => setBankQuizUsage(e.target.value as any)}>
+                            <option value="all">All</option>
+                            <option value="used">Used in a quiz</option>
+                            <option value="unused">Never used in any quiz</option>
+                          </select>
+                        </label>
+                      )}
+                    </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "24px" }}>
-                    <label className="check-row" style={{ cursor: "pointer", fontWeight: 600 }}>
-                      <input type="checkbox" checked={bankOnlyMine} onChange={e => setBankOnlyMine(e.target.checked)} />
-                      Only my contributions
-                    </label>
+                    <div className="qb-sheet-foot">
+                      <button className="outline" onClick={resetBankFilters}>
+                        Reset all
+                      </button>
+                      <button className="primary" onClick={() => setBankFilterPanelOpen(false)}>
+                        Show {bankTotal} results
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
             </section>
+
+            {/* Error with Retry State */}
+            {bankError && (
+              <section className="card qb-error-card">
+                <AlertCircle size={20} color="#ef4444" />
+                <div>
+                  <strong>Failed to load questions</strong>
+                  <p>{bankError}</p>
+                </div>
+                <button className="outline" onClick={() => loadQuestionBank(0, false)}>
+                  Retry
+                </button>
+              </section>
+            )}
 
             {/* Questions Bank List */}
             <section className="card" style={{ padding: "20px" }}>
@@ -2580,8 +2749,21 @@ function logout() {
                 );
               })}
 
-              {!bankQuestions.length && !bankLoading && (
-                <Empty text="No questions match the current filter and visibility criteria." />
+              {!bankQuestions.length && !bankLoading && !bankError && (
+                <div className="qb-empty-box">
+                  <FileQuestion size={36} color="#94a3b8" />
+                  <h4>No questions match your current filters</h4>
+                  <p>
+                    {activeFilterCount > 0 || bankDebouncedSearch || bankQuick !== "all"
+                      ? "Some active filters are hiding results. Clear them to restore the question list."
+                      : "No questions are currently available in the question bank."}
+                  </p>
+                  {(activeFilterCount > 0 || bankDebouncedSearch || bankQuick !== "all") && (
+                    <button className="primary" onClick={resetBankFilters}>
+                      Clear all filters
+                    </button>
+                  )}
+                </div>
               )}
 
               {bankQuestions.length < bankTotal && (
@@ -4171,8 +4353,7 @@ function logout() {
             )}
           </>
         )}
-
-        {view === "People" && review && (
+{view === "People" && review && (
           <>
             {profile.role === "super_admin" && (
               <div className="section-title">
@@ -4185,6 +4366,8 @@ function logout() {
                 </button>
               </div>
             )}
+
+            {/* Super Admin: Add Member Modal */}
             {profile.role === "super_admin" && memberModal && (
               <div
                 className="modal-backdrop"
@@ -4289,9 +4472,12 @@ function logout() {
                 </section>
               </div>
             )}
+
+            {/* People List */}
             <section className="card">
               <h3>Members ({people.length})</h3>
-              <p>Approve student and teacher sign-ups, update enrollment numbers, and manage access.</p>
+              <p>Approve student and teacher sign-ups, change member roles, and manage workspace access.</p>
+
               <label className="member-search">
                 Find a member
                 <input
@@ -4301,90 +4487,351 @@ function logout() {
                   placeholder="Search by name or enrollment number"
                 />
               </label>
+
               {people
                 .filter(p => `${p.full_name} ${p.enrollment_number || ""}`.toLowerCase().includes(memberSearch.toLowerCase()))
-                .map(p => (
-                  <div className="row member" key={p.id}>
-                    <div>
-                      <strong>
-                        {p.full_name}
-                        {p.enrollment_number ? ` · ${p.enrollment_number}` : ""}
-                      </strong>
-                      <small>
-                        {p.active
-                          ? "Active"
-                          : p.requested_role
-                          ? `Waiting for approval · requested ${p.requested_role === "supervisor" ? "teacher" : "student"}`
-                          : "Inactive"}
-                      </small>
-                      {["student", "student_leader"].includes(roles[p.id] || p.requested_role || p.role) && (
-                        <label>
-                          Enrollment number{!p.active ? " · from signup" : ""}
-                          <input
-                            disabled={profile.role !== "super_admin"}
-                            maxLength={40}
-                            placeholder="Saved at signup; enter here only if missing"
-                            value={enrollmentEdits[p.id] ?? p.enrollment_number ?? ""}
-                            onChange={e => setEnrollmentEdits({ ...enrollmentEdits, [p.id]: e.target.value })}
-                          />
-                        </label>
+                .map(p => {
+                  const isPending = !p.active && Boolean(p.requested_role);
+                  const isInactive = !p.active && !p.requested_role;
+                  const isSuperAdmin = profile.role === "super_admin";
+                  const isSelf = p.id === profile.id;
+
+                  return (
+                    <div className="row member ppl-row" key={p.id}>
+                      <div className="ppl-info">
+                        <strong>
+                          {p.full_name}
+                          {p.enrollment_number ? ` · ${p.enrollment_number}` : ""}
+                        </strong>
+
+                        {/* Role and Status Chips */}
+                        <div className="ppl-chips">
+                          {isPending ? (
+                            <>
+                              <span className="role-chip role-requested">
+                                Requested: {labels[p.requested_role!] || p.requested_role}
+                              </span>
+                              <span className="role-chip role-pending">Waiting for approval</span>
+                            </>
+                          ) : isInactive ? (
+                            <>
+                              <span className={`role-chip role-${p.role}`}>{labels[p.role] || p.role}</span>
+                              <span className="role-chip role-inactive">Inactive</span>
+                            </>
+                          ) : (
+                            <span className={`role-chip role-${p.role}`}>{labels[p.role] || p.role}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Super Admin Row Actions */}
+                      {isSuperAdmin && (
+                        <div className="ppl-actions">
+                          {isPending ? (
+                            <button
+                              className="primary"
+                              onClick={() => {
+                                setApproveModalRole(p.requested_role || "student");
+                                setApproveModalEnrollment(p.enrollment_number || "");
+                                setApproveModalTarget(p);
+                              }}
+                            >
+                              Approve
+                            </button>
+                          ) : !isSelf ? (
+                            <div className="ppl-kebab-anchor" onClick={e => e.stopPropagation()}>
+                              <button
+                                className="icon-button"
+                                aria-label="Member options"
+                                onClick={() => setMemberKebabId(memberKebabId === p.id ? null : p.id)}
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+
+                              {memberKebabId === p.id && (
+                                <div className="qz-pop ppl-pop">
+                                  <button
+                                    className="plain"
+                                    onClick={() => {
+                                      setMemberKebabId(null);
+                                      setRoleModalRole(p.role);
+                                      setRoleModalEnrollment(p.enrollment_number || "");
+                                      setRoleModalTarget(p);
+                                    }}
+                                  >
+                                    Change role
+                                  </button>
+                                  <button
+                                    className="plain"
+                                    onClick={() => {
+                                      setMemberKebabId(null);
+                                      setDeactivateModalTarget(p);
+                                    }}
+                                  >
+                                    {p.active ? "Deactivate" : "Activate"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
                       )}
                     </div>
-                    <select
-                      disabled={profile.role !== "super_admin"}
-                      value={roles[p.id] || p.requested_role || p.role}
-                      onChange={e => setRoles({ ...roles, [p.id]: e.target.value })}
-                    >
-                      {Object.entries(labels).map(([r, label]) => (
-                        <option key={r} value={r}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                    {profile.role === "super_admin" && p.id !== profile.id && (
-                      <>
-                        {!p.active && p.requested_role && (
-                          <button className="primary" onClick={() => activateMember(p)}>
-                            Approve & activate
-                          </button>
-                        )}
-                        {(!p.requested_role || p.active) && (
-                          <button
-                            className="outline"
-                            onClick={() =>
-                              p.active
-                                ? change(route("profiles", `id=eq.${p.id}`), { role: roles[p.id] || p.role, active: false }, "PATCH")
-                                : activateMember(p)
-                            }
-                          >
-                            {p.active ? "Deactivate" : "Activate"}
-                          </button>
-                        )}
-                        {p.active && (
-                          <button
-                            className="plain"
-                            onClick={() =>
-                              change(
-                                route("profiles", `id=eq.${p.id}`),
-                                {
-                                  role: roles[p.id] || p.role,
-                                  enrollment_number:
-                                    (roles[p.id] || p.role) === "supervisor" ? null : enrollmentEdits[p.id] ?? p.enrollment_number ?? null
-                                },
-                                "PATCH"
-                              )
-                            }
-                          >
-                            Save changes
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
             </section>
+
+            {/* Change Role Modal (Admin Only) */}
+            {roleModalTarget && (
+              <div
+                className="modal-backdrop"
+                onMouseDown={e => {
+                  if (e.target === e.currentTarget && !memberBusy) setRoleModalTarget(null);
+                }}
+              >
+                <section className="modal form-card" role="dialog" aria-modal="true" style={{ maxWidth: "460px" }}>
+                  <div className="modal-head">
+                    <div>
+                      <span className="eyebrow">MEMBER MANAGEMENT</span>
+                      <h2>Change role</h2>
+                    </div>
+                    <button className="icon-button" aria-label="Close" onClick={() => setRoleModalTarget(null)} disabled={memberBusy}>
+                      <X />
+                    </button>
+                  </div>
+                  <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                    <p style={{ margin: 0, fontSize: "14px" }}>
+                      Update role for <b>{roleModalTarget.full_name}</b>.
+                    </p>
+
+                    <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+                      Role
+                      <select value={roleModalRole} onChange={e => setRoleModalRole(e.target.value)}>
+                        <option value="student">Student</option>
+                        <option value="student_leader">Student leader</option>
+                        <option value="supervisor">Teacher</option>
+                        <option value="super_admin">Super admin</option>
+                      </select>
+                    </label>
+
+                    {["student", "student_leader"].includes(roleModalRole) && (
+                      <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+                        Enrollment number (required)
+                        <input
+                          required
+                          type="text"
+                          maxLength={40}
+                          value={roleModalEnrollment}
+                          onChange={e => setRoleModalEnrollment(e.target.value)}
+                          placeholder="College enrollment / roll number"
+                        />
+                      </label>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                      <button className="outline" onClick={() => setRoleModalTarget(null)} disabled={memberBusy}>
+                        Cancel
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={memberBusy || (["student", "student_leader"].includes(roleModalRole) && !roleModalEnrollment.trim())}
+                        onClick={async () => {
+                          setMemberBusy(true);
+                          setError("");
+                          try {
+                            await request("/rest/v1/rpc/admin_manage_profile", token, "POST", {
+                              p_profile_id: roleModalTarget.id,
+                              p_role: roleModalRole,
+                              p_enrollment_number: ["student", "student_leader"].includes(roleModalRole) ? roleModalEnrollment.trim() : null,
+                              p_active: roleModalTarget.active
+                            });
+                            flash(`Updated role for ${roleModalTarget.full_name}.`);
+                            setRoleModalTarget(null);
+                            if (session) await load(session);
+                          } catch (err: any) {
+                            setError(err.message || "Failed to update member role");
+                          } finally {
+                            setMemberBusy(false);
+                          }
+                        }}
+                      >
+                        {memberBusy ? "Saving…" : "Save role"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* Deactivate / Activate Confirmation Modal */}
+            {deactivateModalTarget && (() => {
+              const upcomingDutiesCount = duties.filter(
+                d => d.student_id === deactivateModalTarget.id && d.duty_date >= today
+              ).length;
+              const willDeactivate = deactivateModalTarget.active;
+
+              return (
+                <div
+                  className="modal-backdrop"
+                  onMouseDown={e => {
+                    if (e.target === e.currentTarget && !memberBusy) setDeactivateModalTarget(null);
+                  }}
+                >
+                  <section className="modal form-card" role="dialog" aria-modal="true" style={{ maxWidth: "480px" }}>
+                    <div className="modal-head">
+                      <div>
+                        <span className="eyebrow" style={{ color: willDeactivate ? "#ef4444" : "#10b981" }}>
+                          CONFIRM {willDeactivate ? "DEACTIVATION" : "ACTIVATION"}
+                        </span>
+                        <h2>{willDeactivate ? "Deactivate member?" : "Activate member?"}</h2>
+                      </div>
+                      <button className="icon-button" aria-label="Close" onClick={() => setDeactivateModalTarget(null)} disabled={memberBusy}>
+                        <X />
+                      </button>
+                    </div>
+                    <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                      <p style={{ margin: 0, fontSize: "14px" }}>
+                        {willDeactivate ? (
+                          <>
+                            Deactivate <b>{deactivateModalTarget.full_name}</b>?
+                          </>
+                        ) : (
+                          <>
+                            Reactivate <b>{deactivateModalTarget.full_name}</b> and restore workspace access?
+                          </>
+                        )}
+                      </p>
+
+                      {willDeactivate && (
+                        <div className="card" style={{ padding: "12px", background: "#fef2f2", border: "1px solid #fee2e2", margin: 0 }}>
+                          <p style={{ margin: 0, fontSize: "13px", color: "#991b1b" }}>
+                            This member currently has <b>{upcomingDutiesCount}</b> upcoming {upcomingDutiesCount === 1 ? "duty" : "duties"}.
+                            They will lose access immediately and will be skipped in future rotation cycles.
+                          </p>
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                        <button className="outline" onClick={() => setDeactivateModalTarget(null)} disabled={memberBusy}>
+                          Cancel
+                        </button>
+                        <button
+                          className={willDeactivate ? "danger-outline" : "primary"}
+                          style={willDeactivate ? { background: "#ef4444", color: "#fff", borderColor: "#ef4444" } : {}}
+                          disabled={memberBusy}
+                          onClick={async () => {
+                            setMemberBusy(true);
+                            setError("");
+                            try {
+                              await request("/rest/v1/rpc/admin_manage_profile", token, "POST", {
+                                p_profile_id: deactivateModalTarget.id,
+                                p_role: deactivateModalTarget.role,
+                                p_enrollment_number: deactivateModalTarget.enrollment_number || null,
+                                p_active: !willDeactivate
+                              });
+                              flash(willDeactivate ? `Deactivated ${deactivateModalTarget.full_name}.` : `Activated ${deactivateModalTarget.full_name}.`);
+                              setDeactivateModalTarget(null);
+                              if (session) await load(session);
+                            } catch (err: any) {
+                              setError(err.message || "Failed to change member status");
+                            } finally {
+                              setMemberBusy(false);
+                            }
+                          }}
+                        >
+                          {memberBusy ? "Updating…" : willDeactivate ? "Yes, deactivate" : "Yes, activate"}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              );
+            })()}
+
+            {/* Approve Member Modal */}
+            {approveModalTarget && (
+              <div
+                className="modal-backdrop"
+                onMouseDown={e => {
+                  if (e.target === e.currentTarget && !memberBusy) setApproveModalTarget(null);
+                }}
+              >
+                <section className="modal form-card" role="dialog" aria-modal="true" style={{ maxWidth: "460px" }}>
+                  <div className="modal-head">
+                    <div>
+                      <span className="eyebrow" style={{ color: "#10b981" }}>APPROVE SIGNUP</span>
+                      <h2>Approve member</h2>
+                    </div>
+                    <button className="icon-button" aria-label="Close" onClick={() => setApproveModalTarget(null)} disabled={memberBusy}>
+                      <X />
+                    </button>
+                  </div>
+                  <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                    <p style={{ margin: 0, fontSize: "14px" }}>
+                      Approve and activate account for <b>{approveModalTarget.full_name}</b>.
+                    </p>
+
+                    <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+                      Role
+                      <select value={approveModalRole} onChange={e => setApproveModalRole(e.target.value)}>
+                        <option value="student">Student</option>
+                        <option value="student_leader">Student leader</option>
+                        <option value="supervisor">Teacher</option>
+                        <option value="super_admin">Super admin</option>
+                      </select>
+                    </label>
+
+                    {["student", "student_leader"].includes(approveModalRole) && (
+                      <label style={{ display: "grid", gap: "6px", fontSize: "13px", fontWeight: 700 }}>
+                        Enrollment number (required)
+                        <input
+                          required
+                          type="text"
+                          maxLength={40}
+                          value={approveModalEnrollment}
+                          onChange={e => setApproveModalEnrollment(e.target.value)}
+                          placeholder="College enrollment / roll number"
+                        />
+                      </label>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                      <button className="outline" onClick={() => setApproveModalTarget(null)} disabled={memberBusy}>
+                        Cancel
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={memberBusy || (["student", "student_leader"].includes(approveModalRole) && !approveModalEnrollment.trim())}
+                        onClick={async () => {
+                          setMemberBusy(true);
+                          setError("");
+                          try {
+                            await request("/rest/v1/rpc/admin_manage_profile", token, "POST", {
+                              p_profile_id: approveModalTarget.id,
+                              p_role: approveModalRole,
+                              p_enrollment_number: ["student", "student_leader"].includes(approveModalRole) ? approveModalEnrollment.trim() : null,
+                              p_active: true
+                            });
+                            flash(`Approved and activated ${approveModalTarget.full_name}.`);
+                            setApproveModalTarget(null);
+                            if (session) await load(session);
+                          } catch (err: any) {
+                            setError(err.message || "Failed to approve member");
+                          } finally {
+                            setMemberBusy(false);
+                          }
+                        }}
+                      >
+                        {memberBusy ? "Approving…" : "Approve & activate"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
           </>
         )}
+   
       </div>
 
       {modalOpen && (
