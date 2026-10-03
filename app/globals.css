@@ -1664,3 +1664,147 @@
     text-align: center;
   }
 }
+/* ==========================================================================
+   Step 4: Student Marks Matrix (Gradebook) Styles
+   ========================================================================== */
+
+.gb-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+
+.gb-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+  min-width: 680px;
+}
+
+.gb-table th,
+.gb-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf1f6;
+  white-space: nowrap;
+}
+
+.gb-table thead th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  font-size: 12.5px;
+  text-align: center;
+  border-bottom: 1.5px solid #e2e8f0;
+  vertical-align: bottom;
+}
+
+/* Sticky First Column: Student Name & Roll Number */
+.gb-table .gb-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #ffffff;
+  text-align: left;
+  min-width: 190px;
+  max-width: 250px;
+  border-right: 1.5px solid #e2e8f0;
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.03);
+}
+
+.gb-table thead th.gb-sticky-col {
+  background: #f8fafc;
+  z-index: 6;
+}
+
+.gb-table td.gb-sticky-col strong {
+  display: block;
+  font-size: 14px;
+  color: #172b45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gb-table td.gb-sticky-col small {
+  display: block;
+  color: #64748b;
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.gb-quiz-title {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.gb-quiz-date {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* Cell Badges */
+.gb-score-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: #e8f4ed;
+  color: #1e5e38;
+  font-weight: 700;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gb-absent-pill {
+  display: inline-block;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.gb-open-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.gb-attended-badge {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+.gb-total-score {
+  font-size: 14px;
+  color: #1d548e;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hover States */
+.gb-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.gb-table tbody tr:hover td.gb-sticky-col {
+  background: #f8fafc;
+}
+
+@media (max-width: 640px) {
+  .gb-table .gb-sticky-col {
+    min-width: 150px;
+    max-width: 180px;
+  }
+}
