@@ -224,8 +224,8 @@ export default function DutyCalendar(p: Props) {
     setSwapReason("");
     setActionsMenuOpen(false);
     setStatusDropdownOpen(false);
-  }, [dutyDate, selected?.id, selected?.student_id, selected?.target_count]);
-
+    setSelectedTab(canSee ? "questions" : "history");
+  }, [dutyDate, selected?.id, selected?.student_id, selected?.target_count, canSee]);
   // Outside click listener for menus
   useEffect(() => {
     if (!actionsMenuOpen && !statusDropdownOpen) return;
@@ -683,23 +683,27 @@ export default function DutyCalendar(p: Props) {
             )}
           </div>
 
-          {/* Sub-Tabs: Questions | History */}
-          <div className="dc-subtabs">
-            <button
-              className={selectedTab === "questions" ? "on" : ""}
-              onClick={() => setSelectedTab("questions")}
-            >
-              Questions
-            </button>
-            {manage && (
-              <button
-                className={selectedTab === "history" ? "on" : ""}
-                onClick={() => setSelectedTab("history")}
-              >
-                History
-              </button>
-            )}
-          </div>
+       {/* Sub-Tabs: Questions | History (only rendered if user can view at least one) */}
+          {(canSee || manage) && (
+            <div className="dc-subtabs">
+              {canSee && (
+                <button
+                  className={selectedTab === "questions" ? "on" : ""}
+                  onClick={() => setSelectedTab("questions")}
+                >
+                  Questions
+                </button>
+              )}
+              {manage && (
+                <button
+                  className={selectedTab === "history" ? "on" : ""}
+                  onClick={() => setSelectedTab("history")}
+                >
+                  History
+                </button>
+              )}
+            </div>
+          )}
 
           {selectedTab === "questions" && canSee && (
             <DutyQuestions
