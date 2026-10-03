@@ -757,8 +757,9 @@
 }
 .dc-month-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
+  width: 100%;
 }
 .dc-grid-header {
   font-size: 12px;
@@ -1195,18 +1196,84 @@
 }
 
 @media (max-width: 768px) {
+  .dc-toolbar {
+    padding: 12px;
+    gap: 10px;
+  }
+  .dc-month-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .dc-month-title {
+    min-width: 0;
+    font-size: 15px;
+    flex: 1;
+    text-align: center;
+  }
+  .dc-toolbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .dc-toolbar-actions button {
+    width: 100%;
+    padding: 8px 6px;
+    font-size: 12px;
+    justify-content: center;
+  }
+  .dc-calendar-card {
+    padding: 12px 6px;
+    overflow: hidden;
+  }
   .dc-month-grid {
-    gap: 4px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 3px;
+    width: 100%;
+  }
+  .dc-grid-header {
+    font-size: 11px;
+    padding: 2px 0 4px;
   }
   .dc-month-cell {
-    min-height: 64px;
-    padding: 4px 6px;
+    min-height: 56px;
+    padding: 4px 3px;
+    border-radius: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .dc-cell-top {
+    gap: 2px;
+    width: 100%;
+  }
+  .dc-day-num {
+    font-size: 11px;
+  }
+  .dc-day-num.today-badge {
+    width: 17px;
+    height: 17px;
+    font-size: 10px;
+  }
+  .dc-overdue-tag,
+  .dc-you-tag {
+    font-size: 7.5px;
+    padding: 1px 2px;
+    line-height: 1;
+    border-radius: 3px;
   }
   .dc-cell-name {
-    font-size: 11px;
+    font-size: 10px;
+    max-width: 100%;
   }
   .dc-cell-status {
     display: none;
+  }
+  .dc-cell-empty {
+    font-size: 9px;
+  }
+  .dc-legend {
+    gap: 6px 8px;
+    font-size: 11px;
   }
   .dc-action-bar {
     width: 100%;
@@ -1221,5 +1288,234 @@
     max-height: 85vh;
     border-radius: 18px 18px 0 0;
     animation: toast-in 0.2s ease-out;
+  }
+}
+/* ==========================================================================
+   Step 7: Mobile Navigation Scrollbar Removal & Scroll Indicator
+   ========================================================================== */
+
+/* Hide scroll hint on desktop */
+.nav-scroll-hint {
+  display: none;
+}
+
+@media (max-width: 750px) {
+  .side-nav-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .side-nav-wrap nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    width: 100%;
+    padding-right: 30px; /* Leaves room so the last tab is not hidden under the chevron */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE / Edge */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .side-nav-wrap nav::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  .nav-scroll-hint {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    pointer-events: none;
+    background: linear-gradient(to right, rgba(255, 255, 255, 0) 0%, #ffffff 65%);
+    color: #52647c;
+  }
+}
+
+/* ==========================================================================
+   Step 9: Question Bank Header Alignment & Question Card Typography
+   ========================================================================== */
+
+/* Header section title & action buttons */
+.qb-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.qb-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.qb-header-actions button {
+  padding: 8px 14px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+/* Question Bank Card: full-width stem & bottom-right actions */
+.qb-question-item {
+  border-top: 1px solid #edf1f6;
+  padding: 14px 0;
+}
+
+.qb-question-summary {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.qb-question-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Full width question stem with comfortable reading font */
+.qb-question-stem {
+  width: 100%;
+}
+
+.qb-question-stem strong {
+  display: block;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: #172b45;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Bottom metadata and action bar */
+.qb-question-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.qb-question-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.qb-question-badge-kebab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .qb-section-title {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .qb-header-actions {
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .qb-question-stem strong {
+    font-size: 14.5px;
+    line-height: 1.45;
+  }
+
+  .qb-question-footer {
+    gap: 6px;
+  }
+}
+/* ==========================================================================
+   Step 10: People Row Far-Right Kebab Alignment
+   ========================================================================== */
+
+.row.member.ppl-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  gap: 16px;
+  padding: 12px 14px;
+}
+
+.ppl-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ppl-info strong {
+  font-size: 14.5px;
+  color: #172b45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ppl-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.ppl-kebab-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ppl-kebab-anchor .icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: #64748b;
+  cursor: pointer;
+  background: transparent;
+}
+
+.ppl-kebab-anchor .icon-button:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #e2e8f0;
+}
+
+@media (max-width: 600px) {
+  .row.member.ppl-row {
+    padding: 10px 8px;
+    gap: 10px;
+  }
+
+  .ppl-info strong {
+    font-size: 13.5px;
   }
 }
