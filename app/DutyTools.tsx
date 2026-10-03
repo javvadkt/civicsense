@@ -433,9 +433,7 @@ export function ReportLeaveModal({
   );
 }
 
-export function MyAvailability(p: { profile: { id: string }; duties: any[]; today: string; api: Api; flash: (s: string) => void; fail: (s: string) => void }) {
-  return null;
-}
+// MyAvailability superseded by ReportLeaveModal
 
 /* ---------------- Duty history (staff) ---------------- */
 export function DutyHistory({ dutyId, api, people }: { dutyId: string; api: Api; people: Person[] }) {
@@ -503,8 +501,9 @@ export function DutyQuestions({
   const [pick, setPick] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
-  // Preference for hiding question list (admin and teacher only)
+  // Preference for hiding question list (teacher only)
   const [hidden, setHidden] = useState<boolean>(() => {
+    
     if (mine) return false;
     try {
       return localStorage.getItem("civicprep_duty_questions_hidden") === "true";
