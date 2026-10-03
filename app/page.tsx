@@ -3651,7 +3651,7 @@ const eligibleStudents = people
               })}
             </div>
 
-            {/* Quiz Cards */}
+        {/* Quiz Cards */}
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {quizzes
                 .filter(z => {
@@ -3687,7 +3687,7 @@ const eligibleStudents = people
                     : { label: isEndedEarly ? "Ended early" : "Closed", cls: "revision_requested" };
 
                   const isLeader = profile.role === "student_leader";
-                  const hasDraft = (isInProgress || Boolean(typeof window !== "undefined" && localStorage.getItem(`civicprep_answers_${z.id}`)));
+                  const hasDraft = isInProgress || (typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`)));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
                   // Academic controller privileges (Teacher only)
@@ -3705,9 +3705,8 @@ const eligibleStudents = people
                   const canRecalculate = canManageAcademics;
                   const canToggleHide = canManageAcademics;
                   const canDelete = canManageAcademics;
-                  // Kebab menu visibility rules:
-                  // 1. Test takers (Students & Super Admin): ONLY visible on Closed quizzes when they can review answers
-                  // 2. Teachers & Student Leaders: visible for management actions (Attendees, Edit, etc.)
+
+                  // Kebab menu visibility rules
                   const hasDropdownActions = !canManageAcademics && !isLeader
                     ? (isClosed && canReviewAnswers)
                     : (canViewAttendees ||
@@ -3758,7 +3757,7 @@ const eligibleStudents = people
                           <span>•</span>
                           <span>Results {z.result_visibility === "immediate" ? "immediate" : "after release"}</span>
                         </div>
-                        {isSubmitted ? (
+                        {attempt && isSubmitted ? (
                           <small className="attended" style={{ display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
                             <CheckCircle2 size={14} /> Attended • Submitted{" "}
                             {new Date(attempt.submitted_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -3782,7 +3781,7 @@ const eligibleStudents = people
                           flexShrink: 0
                         }}
                       >
-                       {/* Test Taker Primary Card Button (Students, Leaders) */}
+                        {/* Test Taker Primary Card Button */}
                         {canTakeQuizzes &&
                           (isSubmitted ? (
                             z.result_visibility === "after_release" && !z.results_published ? (
@@ -3791,7 +3790,7 @@ const eligibleStudents = people
                               <button className="outline" onClick={() => showResult(z)}>
                                 Review answers
                               </button>
-                            ) : null /* On closed quizzes, review is inside kebab menu */
+                            ) : null
                           ) : isLive ? (
                             <button className="primary" onClick={() => openQuiz(z)}>
                               {hasDraft ? "Resume quiz" : "Start quiz"}
