@@ -470,8 +470,14 @@ export default function Home() {
   const [questionsModalLoading, setQuestionsModalLoading] = useState(false);
   const [questionsModalAttempts, setQuestionsModalAttempts] = useState<number>(0);
 
-  const review = profile?.role === "super_admin" || profile?.role === "supervisor",
-    manage = review || profile?.role === "student_leader",
+  const isTeacher = profile?.role === "supervisor",
+    isSuperAdmin = profile?.role === "super_admin",
+    canManageAcademics = isTeacher,
+    canManagePeople = isSuperAdmin,
+    canManageDuties = isTeacher || profile?.role === "student_leader",
+    canTakeQuizzes = ["student", "student_leader", "super_admin"].includes(profile?.role || ""),
+    review = canManageAcademics,
+    manage = canManageDuties,
     today = new Date().toLocaleDateString("en-CA");
 
   const load = useCallback(async (s: Session) => {
@@ -491,10 +497,11 @@ export default function Home() {
       setAttempts([]);
       return;
     }
- const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
-    const canTakeQuizzes = ["student", "student_leader"].includes(me.role);
+const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
+    const isTeacherRole = me.role === "supervisor";
+    const canTakeQuizzesRole = ["student", "student_leader", "super_admin"].includes(me.role);
     const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
-      me.role === "super_admin" || me.role === "supervisor"
+      isTeacherRole
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
             rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
           )
@@ -520,7 +527,7 @@ export default function Home() {
           )
         : Promise.resolve([]),
       request(route("quiz_attempts", `select=quiz_id,submitted_at,score&student_id=eq.${me.id}`), s.access_token),
-      canTakeQuizzes
+      canTakeQuizzesRole
         ? request(
             route(
               "duties",
@@ -529,7 +536,7 @@ export default function Home() {
             s.access_token
           ).catch(() => [])
         : Promise.resolve([]),
-      canTakeQuizzes
+      canTakeQuizzesRole
         ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}).catch(() => null)
         : Promise.resolve(null),
       request(route("quiz_questions", "select=question_id"), s.access_token).catch(() => [])
@@ -1147,19 +1154,19 @@ function logout() {
       !(q as any).ended_early_at &&
       !myAttempts.has(q.id)
   ).length;
-
 const links = [
     "Overview",
     "Question bank",
-    "Duty calendar",
     "Quizzes",
-    ...(review ? ["Marks summary", "Review queue", "People"] : [])
+    "Duty calendar",
+    ...(canManageAcademics ? ["Marks summary", "Review queue"] : []),
+    ...(canManagePeople ? ["People"] : [])
   ];
   const navIcons: any = {
     Overview: BookOpen,
     "Question bank": BookOpen,
-    "Duty calendar": CalendarDays,
     Quizzes: ClipboardList,
+    "Duty calendar": CalendarDays,
     "Marks summary": Award,
     "Review queue": ShieldCheck,
     People: Users
@@ -1776,8 +1783,8 @@ const links = [
       .filter(q => q.published)
       .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
 
-    const eligibleStudents = people
-      .filter(p => ["student", "student_leader"].includes(p.role) && p.active)
+const eligibleStudents = people
+      .filter(p => ["student", "student_leader", "super_admin"].includes(p.role) && p.active)
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
     // Fast lookup: `${student_id}_${quiz_id}` -> attempt
@@ -2203,7 +2210,7 @@ const links = [
           )}
         </div>
 
-      {view === "Overview" && (() => {
+    {view === "Overview" && (() => {
           const todayDuty = duties.find(d => d.duty_date === today);
           const isViewerToday = todayDuty?.student_id === profile.id;
           const todayPerson = todayDuty
@@ -2212,8 +2219,7 @@ const links = [
           const todayEnrollment = todayDuty
             ? (todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id))
             : null;
-          const canTakeQuizzes = ["student", "student_leader"].includes(profile.role);
-          const isStudent = profile.role === "student";
+          const isStudentOrAdmin = ["student", "super_admin"].includes(profile.role); 
 
           const sortedDuties = [...myDuties].sort((a, b) => {
             const aFuture = a.duty_date >= today;
@@ -2278,9 +2284,9 @@ const links = [
                 )}
               </section>
 
-             {/* 3 Stat Cards (Approved questions removed for all roles) */}
+          {/* 3 Stat Cards (Approved questions removed for all roles) */}
               <div className="stats">
-                {review ? (
+                {canManageAcademics ? (
                   (() => {
                     const pendingNew = questions.filter(q => q.status === "pending").length;
                     const revisionReq = questions.filter(q => q.status === "revision_requested").length;
@@ -2396,8 +2402,8 @@ const links = [
                 </section>
               )}
 
-              {/* My Duties List (Student) */}
-              {isStudent && (
+              {/* My Duties List (Student & Super Admin) */}
+              {isStudentOrAdmin && (
                 <section className="card my-duties-card">
                   <div className="card-head-row">
                     <div>
@@ -3409,7 +3415,7 @@ const links = [
           </>
         )}
 
-        {view === "Review queue" && review && (
+       {view === "Review queue" && canManageAcademics && (
           <section className="card">
             <h3>Questions to review ({pending.length})</h3>
             <p>
@@ -3487,7 +3493,7 @@ const links = [
 
         {view === "Quizzes" && (
           <>
-            {review && (
+            {canManageAcademics && (
               <div className="section-title">
                 <p>Create timed quizzes from approved questions.</p>
                 <button
@@ -3501,7 +3507,7 @@ const links = [
                 </button>
               </div>
             )}
-            {builderOpen && review && (
+            {builderOpen && canManageAcademics && (
               <QuizBuilder
                 questions={approved}
                 memberName={memberName}
@@ -3581,34 +3587,30 @@ const links = [
                     ? { label: "Upcoming", cls: "pending" }
                     : { label: isEndedEarly ? "Ended early" : "Closed", cls: "revision_requested" };
 
-                  const isStudent = profile.role === "student";
-                  const isLeader = profile.role === "student_leader";
-                  const isTeacher = profile.role === "supervisor";
-                  const isAdmin = profile.role === "super_admin";
-
+             const isLeader = profile.role === "student_leader";
                   const hasDraft = !attempt && typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
-                  // What actions are available
-                  const canPublish = review && z.result_visibility === "after_release" && !z.results_published;
-                  const canViewAttendees = isTeacher || isAdmin || isLeader;
-                  const canViewQuestions = review;
+                  // Academic controller privileges (Teacher only)
+                  const canPublish = canManageAcademics && z.result_visibility === "after_release" && !z.results_published;
+                  const canViewAttendees = canManageAcademics || isLeader;
+                  const canViewQuestions = canManageAcademics;
                   const canReviewAnswers =
-                    (isStudent || isLeader) &&
+                    canTakeQuizzes &&
                     isClosed &&
                     attempt &&
                     (z.result_visibility === "immediate" || z.results_published);
-                  const canStartNow = (isTeacher || isAdmin) && isUpcoming;
-                  const canEditQuiz = (isTeacher || isAdmin) && isUpcoming;
-                  const canEndEarly = (isTeacher || isAdmin) && isLive;
-                  const canRecalculate = isAdmin;
-                  const canToggleHide = isAdmin;
-                  const canDelete = isAdmin || (isTeacher && isUpcoming);
+                  const canStartNow = canManageAcademics && isUpcoming;
+                  const canEditQuiz = canManageAcademics && isUpcoming;
+                  const canEndEarly = canManageAcademics && isLive;
+                  const canRecalculate = canManageAcademics;
+                  const canToggleHide = canManageAcademics;
+                  const canDelete = canManageAcademics;
 
                   // Kebab menu visibility rules:
-                  // 1. Regular students: ONLY visible on Closed quizzes when they can review answers (hidden on Live & Upcoming)
-                  // 2. Teachers / Admins / Leaders: always visible (e.g. Attendees, Edit, End early)
-                  const hasDropdownActions = isStudent
+                  // 1. Test takers (Students & Super Admin): ONLY visible on Closed quizzes when they can review answers
+                  // 2. Teachers & Student Leaders: visible for management actions (Attendees, Edit, etc.)
+                  const hasDropdownActions = !canManageAcademics && !isLeader
                     ? (isClosed && canReviewAnswers)
                     : (canViewAttendees ||
                        canViewQuestions ||
@@ -3678,8 +3680,8 @@ const links = [
                           flexShrink: 0
                         }}
                       >
-                        {/* Student Primary Card Button (Start/Resume on live, countdown on upcoming) */}
-                        {(isStudent || isLeader) &&
+                       {/* Test Taker Primary Card Button (Students, Leaders, Super Admin) */}
+                        {canTakeQuizzes &&
                           (attempt ? (
                             z.result_visibility === "after_release" && !z.results_published ? (
                               <span className="tag pending">Results pending</span>
@@ -3937,8 +3939,8 @@ const links = [
               {!quizzes.length && <Empty text="No quizzes have been published." />}
             </div>
 
-            {/* Attendees Modal */}
-            {attendeesData && attendanceQuiz && manage && (
+  {/* Attendees Modal */}
+            {attendeesData && attendanceQuiz && (canManageAcademics || profile.role === "student_leader") && (
               <div
                 className="modal-backdrop"
                 onMouseDown={e => {
@@ -4538,7 +4540,7 @@ const links = [
             )}
           </>
         )}
-{view === "Marks summary" && review && (
+{view === "Marks summary" && canManageAcademics && (
           <>
             <div className="section-title qb-section-title">
               <div>
@@ -4659,7 +4661,7 @@ const links = [
           </>
         )}
         
-{view === "People" && review && (
+{view === "People" && canManagePeople && (
           <>
             {profile.role === "super_admin" && (
               <div className="section-title">
