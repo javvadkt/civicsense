@@ -1519,3 +1519,58 @@
     font-size: 13.5px;
   }
 }
+/* ==========================================================================
+   Question Bank: 1-Click Quiz Usage Filter for Staff
+   ========================================================================== */
+
+.qb-usage-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.qb-usage-btn {
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.qb-usage-btn:hover {
+  color: #0f172a;
+}
+
+.qb-usage-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.qb-usage-btn.fresh.active {
+  background: #059669;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
+}
+
+@media (max-width: 640px) {
+  .qb-usage-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .qb-usage-btn {
+    flex: 1;
+    text-align: center;
+    padding: 6px 8px;
+    font-size: 11.5px;
+  }
+}
