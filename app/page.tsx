@@ -410,10 +410,7 @@ export default function Home() {
   const [bankQuizUsage, setBankQuizUsage] = useState<"all" | "used" | "unused">("all");
   const [bankSort, setBankSort] = useState<"newest" | "oldest" | "topic" | "uploader" | "status">("newest");
   const [bankFilterPanelOpen, setBankFilterPanelOpen] = useState(false);
-// Quiz Builder Question Picker Filters
-  const [pickerUsage, setPickerUsage] = useState<"unused" | "used" | "all">("unused");
-  const [pickerToday, setPickerToday] = useState(false);
-  const [pickerMoreFiltersOpen, setPickerMoreFiltersOpen] = useState(false);
+/
   // Redesigned Question Bank Search & Quick Filters
   const [bankQuick, setBankQuick] = useState<"all" | "mine" | "approved" | "pending" | "revision_requested">("all");
   const [bankSearchInput, setBankSearchInput] = useState("");
