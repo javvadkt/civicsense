@@ -214,18 +214,7 @@ export default function DutyCalendar(p: Props) {
   const [swapReason, setSwapReason] = useState("");
   const [swapBusy, setSwapBusy] = useState(false);
 
-  useEffect(() => {
-    setEDate(dutyDate);
-    setEStudent(selected?.student_id || "auto");
-    setETarget(String(selected?.target_count || 5));
-    setEReason("");
-    setStudentReason("");
-    setSwapId("");
-    setSwapReason("");
-    setActionsMenuOpen(false);
-    setStatusDropdownOpen(false);
-    setSelectedTab(canSee ? "questions" : "history");
-  }, [dutyDate, selected?.id, selected?.student_id, selected?.target_count, canSee]);
+
   // Outside click listener for menus
   useEffect(() => {
     if (!actionsMenuOpen && !statusDropdownOpen) return;
@@ -287,7 +276,18 @@ export default function DutyCalendar(p: Props) {
   const stepIndex = steps.indexOf(status);
   const mine = selected?.student_id === p.profile.id;
   const canSee = review || mine;
-
+  useEffect(() => {
+    setEDate(dutyDate);
+    setEStudent(selected?.student_id || "auto");
+    setETarget(String(selected?.target_count || 5));
+    setEReason("");
+    setStudentReason("");
+    setSwapId("");
+    setSwapReason("");
+    setActionsMenuOpen(false);
+    setStatusDropdownOpen(false);
+    setSelectedTab(canSee ? "questions" : "history");
+  }, [dutyDate, selected?.id, selected?.student_id, selected?.target_count, canSee]);
   const prog = p.progress && selected && p.progress.duty_id === selected.id ? p.progress : undefined;
   const target = selected?.target_count ?? 5;
   const uploaded = Number(prog?.submitted_count ?? 0);
