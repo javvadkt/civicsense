@@ -1574,3 +1574,93 @@
     font-size: 11.5px;
   }
 }
+/* ==========================================================================
+   Quiz Builder: Primary Filter Bar, Drawer & Recency Chips
+   ========================================================================== */
+
+.qb-picker-primary-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.qb-chip-toggle {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.qb-chip-toggle:hover {
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.qb-chip-toggle.active {
+  background: #1d548e;
+  color: #ffffff;
+  border-color: #1d548e;
+  box-shadow: 0 1px 3px rgba(29, 84, 142, 0.25);
+}
+
+.qb-more-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.qb-more-toggle:hover {
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.qb-more-toggle.active {
+  background: #f1f5f9;
+  color: #1d548e;
+  border-color: #1d548e;
+}
+
+.qb-picker-drawer {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-top: 2px;
+  animation: toast-in 0.15s ease-out;
+}
+
+@media (max-width: 640px) {
+  .qb-picker-primary-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .qb-more-toggle {
+    margin-left: 0;
+    justify-content: center;
+  }
+
+  .qb-chip-toggle {
+    text-align: center;
+  }
+}
