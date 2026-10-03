@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Search, Shuffle, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, Search, Shuffle, X } from "lucide-react";
 
 type Q = {
   id: string;
@@ -9,6 +9,7 @@ type Q = {
   is_special: boolean;
   author_id: string;
   created_at: string;
+  is_used_in_quiz?: boolean;
   author?: { full_name: string };
 };
 
@@ -78,6 +79,9 @@ export default function QuizBuilder({
   const [duration, setDuration] = useState(editingQuiz?.duration_minutes ?? 10);
   const [visibility, setVisibility] = useState(editingQuiz?.result_visibility || "immediate");
   const [search, setSearch] = useState("");
+  const [usage, setUsage] = useState<"unused" | "used" | "all">("unused");
+  const [todayOnly, setTodayOnly] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [cat, setCat] = useState("all");
   const [topic, setTopic] = useState("all");
   const [authors, setAuthors] = useState<string[]>([]);
@@ -102,10 +106,14 @@ export default function QuizBuilder({
     return Array.from(m.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
   }, [questions]);
 
+  const todayStr = useMemo(() => new Date().toLocaleDateString("en-CA"), []);
+
   const shown = useMemo(() => {
     const s = search.trim().toLowerCase();
     return questions.filter(
       q =>
+        (usage === "all" || (usage === "unused" ? !q.is_used_in_quiz : Boolean(q.is_used_in_quiz))) &&
+        (!todayOnly || localDay(q.created_at) === todayStr) &&
         (cat === "all" || (cat === "special" ? q.is_special : !q.is_special)) &&
         (topic === "all" || q.topic === topic) &&
         (!authors.length || authors.includes(q.author_id)) &&
@@ -113,11 +121,32 @@ export default function QuizBuilder({
         (!to || localDay(q.created_at) <= to) &&
         (!s || q.stem.toLowerCase().includes(s))
     );
-  }, [questions, search, cat, topic, authors, from, to]);
+  }, [questions, search, usage, todayOnly, todayStr, cat, topic, authors, from, to]);
 
-  const filtersActive = !!search || cat !== "all" || topic !== "all" || authors.length > 0 || !!from || !!to;
+  const moreFilterCount = useMemo(() => {
+    let count = 0;
+    if (cat !== "all") count++;
+    if (topic !== "all") count++;
+    if (authors.length > 0) count++;
+    if (from) count++;
+    if (to) count++;
+    return count;
+  }, [cat, topic, authors, from, to]);
+
+  const filtersActive =
+    !!search ||
+    usage !== "unused" ||
+    todayOnly ||
+    cat !== "all" ||
+    topic !== "all" ||
+    authors.length > 0 ||
+    !!from ||
+    !!to;
+
   const resetFilters = () => {
     setSearch("");
+    setUsage("unused");
+    setTodayOnly(false);
     setCat("all");
     setTopic("all");
     setAuthors([]);
@@ -335,6 +364,7 @@ export default function QuizBuilder({
           <div className="qb-split">
             <div className="qb-left">
               <div className="qb-filters">
+                {/* Search Input */}
                 <label className="qb-search">
                   <Search size={16} />
                   <input
@@ -344,56 +374,108 @@ export default function QuizBuilder({
                     placeholder="Search question text"
                   />
                 </label>
-                <div className="qb-seg" role="group" aria-label="Category">
-                  {[
-                    ["all", "All"],
-                    ["daily", "Regular"],
-                    ["special", "Special"]
-                  ].map(([v, l]) => (
+
+                {/* Always-Visible Primary Filter Bar */}
+                <div className="qb-picker-primary-bar">
+                  <div className="qb-usage-toggle" role="group" aria-label="Filter by quiz usage">
                     <button
                       type="button"
-                      key={v}
-                      className={cat === v ? "on" : ""}
-                      onClick={() => setCat(v)}
+                      className={`qb-usage-btn fresh ${usage === "unused" ? "active" : ""}`}
+                      onClick={() => setUsage("unused")}
                     >
-                      {l}
+                      ★ Fresh (Never quizzed)
                     </button>
-                  ))}
-                </div>
-                <div className="qb-row2">
-                  <label>
-                    Topic
-                    <select value={topic} onChange={e => setTopic(e.target.value)}>
-                      <option value="all">All topics</option>
-                      {topics.map(t => (
-                        <option key={t}>{t}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    From
-                    <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-                  </label>
-                  <label>
-                    To
-                    <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-                  </label>
-                </div>
-                <div>
-                  <span className="qb-label">Contributors</span>
-                  <div className="qb-people">
-                    {contributors.map(([id, c]) => (
-                      <button
-                        type="button"
-                        key={id}
-                        className={authors.includes(id) ? "on" : ""}
-                        onClick={() => toggleAuthor(id)}
-                      >
-                        {memberName(id, c.name)} <i>{c.n}</i>
-                      </button>
-                    ))}
+                    <button
+                      type="button"
+                      className={`qb-usage-btn ${usage === "used" ? "active" : ""}`}
+                      onClick={() => setUsage("used")}
+                    >
+                      Already quizzed
+                    </button>
+                    <button
+                      type="button"
+                      className={`qb-usage-btn ${usage === "all" ? "active" : ""}`}
+                      onClick={() => setUsage("all")}
+                    >
+                      All
+                    </button>
                   </div>
+
+                  <button
+                    type="button"
+                    className={`qb-chip-toggle ${todayOnly ? "active" : ""}`}
+                    onClick={() => setTodayOnly(!todayOnly)}
+                  >
+                    Uploaded today
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`qb-more-toggle ${moreOpen || moreFilterCount > 0 ? "active" : ""}`}
+                    onClick={() => setMoreOpen(!moreOpen)}
+                  >
+                    <Filter size={14} /> More filters {moreFilterCount > 0 ? `(${moreFilterCount})` : ""}
+                  </button>
                 </div>
+
+                {/* Collapsible Secondary Filters */}
+                {moreOpen && (
+                  <div className="qb-picker-drawer">
+                    <div className="qb-seg" role="group" aria-label="Category">
+                      {[
+                        ["all", "All"],
+                        ["daily", "Regular"],
+                        ["special", "Special"]
+                      ].map(([v, l]) => (
+                        <button
+                          type="button"
+                          key={v}
+                          className={cat === v ? "on" : ""}
+                          onClick={() => setCat(v)}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="qb-row2">
+                      <label>
+                        Topic
+                        <select value={topic} onChange={e => setTopic(e.target.value)}>
+                          <option value="all">All topics</option>
+                          {topics.map(t => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        From
+                        <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+                      </label>
+                      <label>
+                        To
+                        <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+                      </label>
+                    </div>
+
+                    <div>
+                      <span className="qb-label">Contributors</span>
+                      <div className="qb-people">
+                        {contributors.map(([id, c]) => (
+                          <button
+                            type="button"
+                            key={id}
+                            className={authors.includes(id) ? "on" : ""}
+                            onClick={() => toggleAuthor(id)}
+                          >
+                            {memberName(id, c.name)} <i>{c.n}</i>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {filtersActive && (
                   <button type="button" className="plain qb-reset" onClick={resetFilters}>
                     Reset filters
@@ -425,16 +507,29 @@ export default function QuizBuilder({
                 </div>
               </div>
 
-              <div className="qb-list">
+             <div className="qb-list">
                 {shown.map(q => (
                   <label key={q.id} className={pickedSet.has(q.id) ? "on" : ""}>
                     <input type="checkbox" checked={pickedSet.has(q.id)} onChange={() => toggle(q.id)} />
                     <span>
                       <b>{q.stem}</b>
-                      <small>
-                        {q.topic}
-                        {q.is_special ? " · Special" : ""} · {memberName(q.author_id, q.author?.full_name || "Contributor")} ·{" "}
-                        {new Date(q.created_at).toLocaleDateString()}
+                      <small style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "4px" }}>
+                        <span
+                          className={`tag ${q.is_used_in_quiz ? "" : "approved"}`}
+                          style={{ fontSize: "11px", padding: "1px 7px" }}
+                        >
+                          {q.is_used_in_quiz ? "Used in quiz" : "Fresh"}
+                        </span>
+                        <span>{q.topic}</span>
+                        {q.is_special && (
+                          <span className="tag pending" style={{ fontSize: "11px", padding: "1px 6px" }}>
+                            Special
+                          </span>
+                        )}
+                        <span>•</span>
+                        <span>{memberName(q.author_id, q.author?.full_name || "Contributor")}</span>
+                        <span>•</span>
+                        <span>{new Date(q.created_at).toLocaleDateString()}</span>
                       </small>
                     </span>
                   </label>
