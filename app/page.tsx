@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Award,
   BookOpen,
   CalendarDays,
   ClipboardList,
@@ -440,9 +441,15 @@ export default function Home() {
   const [mockResult, setMockResult] = useState<any | null>(null);
   const [mockLoading, setMockLoading] = useState(false);
 
-  // Cards, Filters & Dropdown
+// Cards, Filters & Dropdown
   const [quizFilter, setQuizFilter] = useState<"all" | "live" | "upcoming" | "closed">("all");
   const [menuQuizId, setMenuQuizId] = useState<string | null>(null);
+
+  // Student Marks Matrix State (Admin & Teacher)
+  const [allAttempts, setAllAttempts] = useState<any[]>([]);
+  const [gradebookLoading, setGradebookLoading] = useState(false);
+  const [gradebookSearch, setGradebookSearch] = useState("");
+  const [gradebookSort, setGradebookSort] = useState<"total_desc" | "name_asc" | "attended_desc">("total_desc");
 
   // Attendees Modal
   const [attendeesData, setAttendeesData] = useState<any | null>(null);
@@ -837,7 +844,7 @@ useEffect(() => {
     };
   }, [session, load]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!session || !profile?.active || view !== "Duty calendar") return;
     Promise.all([
       request("/rest/v1/rpc/get_duty_progress", token, "POST", { p_duty_date: dutyDate }),
@@ -849,6 +856,29 @@ useEffect(() => {
       })
       .catch((e: any) => setError(e.message));
   }, [session, profile?.active, profile?.id, manage, view, dutyDate, token, questions, duties]);
+
+  // Load class-wide quiz attempts for the Marks summary matrix (Teachers & Admins)
+  const loadGradebook = useCallback(async () => {
+    if (!token || !review) return;
+    setGradebookLoading(true);
+    try {
+      const data = await request(
+        route("quiz_attempts", "select=quiz_id,student_id,score,status,submitted_at&order=submitted_at.desc"),
+        token
+      );
+      setAllAttempts(data || []);
+    } catch (e: any) {
+      setError(e.message || "Failed to load class marks.");
+    } finally {
+      setGradebookLoading(false);
+    }
+  }, [token, review]);
+
+  useEffect(() => {
+    if (session && profile?.active && view === "Marks summary" && review) {
+      loadGradebook();
+    }
+  }, [view, session, profile?.active, review, loadGradebook]);
 
   useEffect(() => {
     const duty = duties.find(d => d.duty_date === dutyDate);
@@ -1118,12 +1148,19 @@ function logout() {
       !myAttempts.has(q.id)
   ).length;
 
-  const links = ["Overview", "Question bank", "Duty calendar", "Quizzes", ...(review ? ["Review queue"] : []), ...(review ? ["People"] : [])];
+const links = [
+    "Overview",
+    "Question bank",
+    "Duty calendar",
+    "Quizzes",
+    ...(review ? ["Marks summary", "Review queue", "People"] : [])
+  ];
   const navIcons: any = {
     Overview: BookOpen,
     "Question bank": BookOpen,
     "Duty calendar": CalendarDays,
     Quizzes: ClipboardList,
+    "Marks summary": Award,
     "Review queue": ShieldCheck,
     People: Users
   };
@@ -1731,7 +1768,110 @@ function logout() {
       setDutyBusy(false);
     }
   }
+// Marks Summary / Gradebook Matrix Computation
+  const gradebookData = useMemo(() => {
+    if (!review) return { matrix: [], quizzesList: [] };
 
+    const relevantQuizzes = [...quizzes]
+      .filter(q => q.published)
+      .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
+
+    const eligibleStudents = people
+      .filter(p => ["student", "student_leader"].includes(p.role) && p.active)
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+    // Fast lookup: `${student_id}_${quiz_id}` -> attempt
+    const attemptLookup = new Map<string, any>();
+    allAttempts.forEach(att => {
+      attemptLookup.set(`${att.student_id}_${att.quiz_id}`, att);
+    });
+
+    const rows = eligibleStudents.map(s => {
+      let totalMarks = 0;
+      let attendedCount = 0;
+      const quizScores: Record<string, { status: "attended" | "absent" | "open"; score: number | null }> = {};
+
+      relevantQuizzes.forEach(z => {
+        const att = attemptLookup.get(`${s.id}_${z.id}`);
+        const isClosed = Boolean(z.ended_early_at) || new Date(z.closes_at).getTime() <= clock;
+
+        if (att && (att.status === "submitted" || (att.score !== null && att.score !== undefined))) {
+          const sc = Number(att.score || 0);
+          totalMarks += sc;
+          attendedCount++;
+          quizScores[z.id] = { status: "attended", score: sc };
+        } else if (isClosed) {
+          quizScores[z.id] = { status: "absent", score: null };
+        } else {
+          quizScores[z.id] = { status: "open", score: null };
+        }
+      });
+
+      return {
+        student: s,
+        scores: quizScores,
+        totalMarks,
+        attendedCount,
+        eligibleCount: relevantQuizzes.length
+      };
+    });
+
+    // Search filter
+    const query = gradebookSearch.trim().toLowerCase();
+    const filtered = rows.filter(r => {
+      if (!query) return true;
+      return (
+        r.student.full_name.toLowerCase().includes(query) ||
+        (r.student.enrollment_number || "").toLowerCase().includes(query)
+      );
+    });
+
+    // Sorting
+    filtered.sort((a, b) => {
+      if (gradebookSort === "total_desc") return b.totalMarks - a.totalMarks;
+      if (gradebookSort === "attended_desc") return b.attendedCount - a.attendedCount;
+      return a.student.full_name.localeCompare(b.student.full_name);
+    });
+
+    return {
+      matrix: filtered,
+      quizzesList: relevantQuizzes
+    };
+  }, [review, quizzes, people, allAttempts, clock, gradebookSearch, gradebookSort]);
+
+  const downloadGradebookCSV = () => {
+    const { matrix, quizzesList } = gradebookData;
+    if (!matrix.length) return;
+
+    const quizHeaders = quizzesList.map(q => `"${q.title.replace(/"/g, '""')}"`);
+    const headers = ["Student Name", "Enrollment Number", ...quizHeaders, "Attended", "Total Marks"];
+
+    const rows = matrix.map(r => {
+      const cols = [
+        `"${r.student.full_name.replace(/"/g, '""')}"`,
+        `"${(r.student.enrollment_number || "").replace(/"/g, '""')}"`
+      ];
+      quizzesList.forEach(z => {
+        const cell = r.scores[z.id];
+        if (cell?.status === "attended") cols.push(String(cell.score ?? 0));
+        else if (cell?.status === "absent") cols.push('"Absent"');
+        else cols.push('"Open"');
+      });
+      cols.push(`"${r.attendedCount} / ${r.eligibleCount}"`);
+      cols.push(String(r.totalMarks));
+      return cols.join(",");
+    });
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `civicprep_marks_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   async function createQuiz(p: QuizPayload) {
     await request("/rest/v1/rpc/create_quiz_with_settings", token, "POST", {
       p_title: p.title,
@@ -4193,6 +4333,8 @@ function logout() {
 
             {/* Student Review Modal */}
             {selectedResult && (
+
+            
               <div
                 className="modal-backdrop"
                 onMouseDown={e => {
@@ -4389,9 +4531,134 @@ function logout() {
                   </div>
                 </section>
               </div>
+
+
+
+            
             )}
           </>
         )}
+{view === "Marks summary" && review && (
+          <>
+            <div className="section-title qb-section-title">
+              <div>
+                <p style={{ margin: 0 }}>Class-wide student marks scorecard across all conducted quizzes.</p>
+              </div>
+              <div className="qb-header-actions">
+                <button
+                  className="outline"
+                  onClick={loadGradebook}
+                  disabled={gradebookLoading}
+                  title="Refresh marks data"
+                >
+                  <RefreshCw size={15} /> Refresh
+                </button>
+                <button
+                  className="primary"
+                  onClick={downloadGradebookCSV}
+                  disabled={!gradebookData.matrix.length}
+                >
+                  <Download size={15} /> Export CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <section className="card" style={{ padding: "16px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ position: "relative", flex: "1 1 240px", minWidth: "220px" }}>
+                  <Search size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", opacity: 0.5 }} />
+                  <input
+                    type="search"
+                    placeholder="Search by student name or roll number..."
+                    value={gradebookSearch}
+                    onChange={e => setGradebookSearch(e.target.value)}
+                    style={{ paddingLeft: "36px", width: "100%", height: "42px" }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <label style={{ fontSize: "13px", fontWeight: 700, color: "#64748b" }}>Sort by:</label>
+                  <select
+                    value={gradebookSort}
+                    onChange={e => setGradebookSort(e.target.value as any)}
+                    style={{ height: "42px", padding: "0 12px", borderRadius: "9px" }}
+                  >
+                    <option value="total_desc">Total Marks (Highest first)</option>
+                    <option value="attended_desc">Most Quizzes Attended</option>
+                    <option value="name_asc">Student Name (A–Z)</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {/* Matrix Table */}
+            <section className="card" style={{ padding: 0, overflow: "hidden" }}>
+              {gradebookLoading ? (
+                <div className="empty">Loading marks matrix…</div>
+              ) : !gradebookData.matrix.length ? (
+                <div className="empty">No student records match the search filter.</div>
+              ) : (
+                <div className="gb-table-wrap">
+                  <table className="gb-table">
+                    <thead>
+                      <tr>
+                        <th className="gb-sticky-col">Student</th>
+                        {gradebookData.quizzesList.map(qz => (
+                          <th key={qz.id} title={qz.title}>
+                            <span className="gb-quiz-title">{qz.title}</span>
+                            <small className="gb-quiz-date">
+                              {new Date(qz.opens_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                            </small>
+                          </th>
+                        ))}
+                        <th style={{ textAlign: "center" }}>Attended</th>
+                        <th style={{ textAlign: "right", paddingRight: "20px" }}>Total Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gradebookData.matrix.map(row => (
+                        <tr key={row.student.id}>
+                          <td className="gb-sticky-col">
+                            <strong>{row.student.full_name}</strong>
+                            {row.student.enrollment_number && (
+                              <small>Roll: {row.student.enrollment_number}</small>
+                            )}
+                          </td>
+                          {gradebookData.quizzesList.map(qz => {
+                            const item = row.scores[qz.id];
+                            return (
+                              <td key={qz.id} style={{ textAlign: "center" }}>
+                                {item?.status === "attended" ? (
+                                  <span className="gb-score-pill">{item.score} pts</span>
+                                ) : item?.status === "absent" ? (
+                                  <span className="gb-absent-pill" title="Not attended">
+                                    —
+                                  </span>
+                                ) : (
+                                  <span className="gb-open-pill">Open</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td style={{ textAlign: "center" }}>
+                            <span className="gb-attended-badge">
+                              {row.attendedCount} / {row.eligibleCount}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: "right", paddingRight: "20px" }}>
+                            <strong className="gb-total-score">{row.totalMarks} pts</strong>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+        
 {view === "People" && review && (
           <>
             {profile.role === "super_admin" && (
