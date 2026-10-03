@@ -556,9 +556,18 @@ const [modalOpen, setModalOpen] = useState(false),
     const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
     const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
       isTeacherRole
-        ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
-            rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
-          )
+        ? Promise.all([
+            request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
+              (rows || []).map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
+            ),
+            request(
+              route(
+                "questions",
+                "select=id,stem,topic,options,source_url,status,author_id,created_at,is_special,author:profiles!questions_author_id_fkey(full_name,enrollment_number)&status=eq.approved&order=created_at.desc&limit=500"
+              ),
+              s.access_token
+            )
+          ]).then(([rev, app]) => [...rev, ...(app || [])])
         : request(
             route(
               "questions",
@@ -1018,6 +1027,11 @@ useEffect(() => {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [activeQuiz]);
+
+  // Early-End Heartbeat
+  useEffect(() => {
+    if (!activeQuiz || !token) return;
+    const poller = setInterval(async () => {
       try {
         const rows = await request(
           route("quizzes", `id=eq.${activeQuiz.id}&select=ended_early_at,closes_at`),
