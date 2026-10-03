@@ -142,7 +142,6 @@ const dutyStatuses: { [key: string]: string } = {
 };
 
 const labels = {
-  super_admin: "Super admin",
   supervisor: "Teacher",
   student_leader: "Student leader",
   student: "Student"
@@ -2296,7 +2295,7 @@ const eligibleStudents = people
           const todayEnrollment = todayDuty
             ? (todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id))
             : null;
-          const isStudentOrAdmin = ["student", "super_admin"].includes(profile.role); 
+          const isStudentOrAdmin = ["student"].includes(profile.role); 
 
           const sortedDuties = [...myDuties].sort((a, b) => {
             const aFuture = a.duty_date >= today;
@@ -2312,7 +2311,7 @@ const eligibleStudents = people
               <div className="intro">
                 <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
                 <p>
-                  {profile.role === "super_admin"
+                  {profile.role === "supervisor"
                     ? "Create and activate accounts, oversee question review, and manage quizzes."
                     : profile.role === "supervisor"
                     ? "Review and revise questions, monitor duty progress, and publish class quiz results."
@@ -4753,7 +4752,7 @@ const eligibleStudents = people
             )}
 
             {/* Super Admin: Add Member Modal */}
-            {profile.role === "super_admin" && memberModal && (
+            {profile.role === "supervisor" && memberModal && (
               <div
                 className="modal-backdrop"
                 onMouseDown={e => {
