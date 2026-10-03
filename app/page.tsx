@@ -354,7 +354,8 @@ export default function Home() {
     [signupMode, setSignupMode] = useState(false),
     [signupRole, setSignupRole] = useState("student"),
     [memberSearch, setMemberSearch] = useState("");
-  const [modalOpen, setModalOpen] = useState(false),
+const [modalOpen, setModalOpen] = useState(false),
+    [modalTab, setModalTab] = useState<"single" | "import">("single"),
     [helpOpen, setHelpOpen] = useState(false),
     [editQuestion, setEditQuestion] = useState<Question | null>(null),
     [stem, setStem] = useState(""),
@@ -1232,8 +1233,9 @@ const links = [
     People: Users
   };
 
-  async function openQuestion(q?: Question) {
+ async function openQuestion(q?: Question, initialTab: "single" | "import" = "single") {
     setEditQuestion(q || null);
+    setModalTab(q ? "single" : initialTab);
     setStem(q?.stem || "");
     setTopic(q?.topic || topics[0]);
     setOptions(q?.options?.length === 4 ? [...q.options] : ["", "", "", ""]);
@@ -2550,7 +2552,7 @@ const eligibleStudents = people
                   </button>
                 )}
                 <button className="primary" onClick={() => openQuestion()}>
-                  <Plus size={15} /> Add
+                  <Plus size={15} /> Add Question
                 </button>
               </div>
             </div>
@@ -5226,7 +5228,7 @@ const eligibleStudents = people
    
       </div>
 
-      {modalOpen && (
+{modalOpen && (
         <div
           className="modal-backdrop"
           onMouseDown={e => {
@@ -5237,14 +5239,35 @@ const eligibleStudents = people
             <div className="modal-head">
               <div>
                 <span className="eyebrow">{editQuestion ? "QUESTION EDITOR" : "QUESTION CONTRIBUTION"}</span>
-                <h2 id="question-modal-title">{editQuestion ? "Edit question" : "Add questions"}</h2>
+                <h2 id="question-modal-title">{editQuestion ? "Edit question" : modalTab === "import" ? "Import questions" : "Add question"}</h2>
               </div>
               <button className="icon-button" aria-label="Close" onClick={() => setModalOpen(false)}>
                 <X />
               </button>
             </div>
+
+            {!editQuestion && (
+              <div className="dc-subtabs" style={{ padding: "0 24px", margin: 0, background: "#fff" }}>
+                <button
+                  type="button"
+                  className={modalTab === "single" ? "on" : ""}
+                  onClick={() => setModalTab("single")}
+                >
+                  Single question
+                </button>
+                <button
+                  type="button"
+                  className={modalTab === "import" ? "on" : ""}
+                  onClick={() => setModalTab("import")}
+                >
+                  Bulk import
+                </button>
+              </div>
+            )}
+
             <div className="modal-scroll">
-              <form className="form-card modal-form" onSubmit={saveQuestion}>
+              {(editQuestion || modalTab === "single") && (
+                <form className="form-card modal-form" onSubmit={saveQuestion}>
                 <label>
                   Question
                   <textarea
@@ -5298,9 +5321,11 @@ const eligibleStudents = people
                     question for targeted quizzes
                   </label>
                 )}
-                <button className="primary">{editQuestion ? "Save question" : "Submit for review"}</button>
+               <button className="primary">{editQuestion ? "Save question" : "Submit for review"}</button>
               </form>
+              )}
 
+              {!editQuestion && modalTab === "import" && (
               <div className="import-panel">
                 <div className="import-heading">
                   <div>
@@ -5349,12 +5374,13 @@ const eligibleStudents = people
                     onChange={e => chooseImportFile(e.target.files?.[0])}
                   />
                 </label>
-                <button className="primary" disabled={importBusy || !importText.trim()} onClick={importQuestions}>
+               <button className="primary" disabled={importBusy || !importText.trim()} onClick={importQuestions}>
                   {importBusy ? "Importing…" : "Import to review queue"}
                 </button>
               </div>
               {importMessage && <p className="success">{importMessage}</p>}
             </div>
+            )}
           </div>
         </section>
       </div>
