@@ -2306,15 +2306,16 @@ const eligibleStudents = people
             <>
               <div className="intro">
                 <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
-                <p>
-                  {profile.role === "supervisor"
-                    ? "Create and activate accounts, oversee question review, and manage quizzes."
-                    : profile.role === "supervisor"
-                    ? "Review and revise questions, monitor duty progress, and publish class quiz results."
-                    : profile.role === "student_leader"
-                    ? "Do your own question duty like every student, and help run the rotation: assign, swap and edit duties."
-                    : "Confirm your assigned duty, submit your questions, and complete live class quizzes."}
-                </p>
+               <p>
+  {profile.role === "supervisor"
+    ? "Create and activate accounts, oversee question review, and manage quizzes."
+    : profile.role === "student_leader"
+    ? "Do your own question duty like every student, and help run the rotation: assign, swap and edit duties."
+    : profile.role === "student" 
+    ? "Review and revise questions, monitor duty progress, and publish class quiz results."
+    : "Confirm your assigned duty, submit your questions, and complete live class quizzes."}
+</p>
+
               </div>
 
               {/* Today's Duty Card (All Roles) */}
