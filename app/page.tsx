@@ -554,7 +554,7 @@ export default function Home() {
 const showDirectory = isTeacher || me.role === "student_leader";
   const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
     const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
-      isTeacherRole
+      isTeacher
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
             rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
           )
