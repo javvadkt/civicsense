@@ -53,10 +53,16 @@ type Session = {
 type Profile = {
   id: string;
   full_name: string;
-  role: "super_admin" | "supervisor" | "student_leader" | "student";
+  role: "supervisor" | "student_leader" | "student";
   active: boolean;
   requested_role?: ("supervisor" | "student") | null;
   enrollment_number?: string | null;
+};
+
+const labels: Record<string, string> = {
+  supervisor: "Teacher",
+  student_leader: "Student leader",
+  student: "Student"
 };
 
 type Question = {
@@ -491,12 +497,11 @@ export default function Home() {
   const [questionsModalAttempts, setQuestionsModalAttempts] = useState<number>(0);
 
   const isTeacher = profile?.role === "supervisor",
-    isSuperAdmin = profile?.role === "super_admin",
     canManageAcademics = isTeacher,
-    canManagePeople = isSuperAdmin,
+    canManagePeople = isTeacher,
     canManageDuties = isTeacher || profile?.role === "student_leader",
-    canTakeQuizzes = ["student", "student_leader", "super_admin"].includes(profile?.role || ""),
-    review = canManageAcademics,
+    canTakeQuizzes = ["student", "student_leader"].includes(profile?.role || ""),
+    review = isTeacher,
     manage = canManageDuties,
     today = new Date().toLocaleDateString("en-CA");
   
@@ -551,9 +556,8 @@ export default function Home() {
       setAttempts([]);
       return;
     }
-const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
-    const isTeacherRole = me.role === "supervisor";
-    const canTakeQuizzesRole = ["student", "student_leader", "super_admin"].includes(me.role);
+const showDirectory = isTeacher || me.role === "student_leader";
+  const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
     const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
       isTeacherRole
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
@@ -1222,8 +1226,7 @@ const links = [
     "Question bank",
     "Quizzes",
     "Duty calendar",
-    ...(canManageAcademics ? ["Marks summary", "Review queue"] : []),
-    ...(canManagePeople ? ["People"] : [])
+    ...(isTeacher ? ["Marks summary", "Review queue", "People"] : [])
   ];
   const navIcons: any = {
     Overview: BookOpen,
@@ -1862,8 +1865,8 @@ const links = [
       .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
 
 const eligibleStudents = people
-      .filter(p => ["student", "student_leader", "super_admin"].includes(p.role) && p.active)
-      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  .filter(p => ["student", "student_leader"].includes(p.role) && p.active)
+  .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
     // Fast lookup: `${student_id}_${quiz_id}` -> attempt
     const attemptLookup = new Map<string, any>();
@@ -4737,7 +4740,7 @@ const eligibleStudents = people
         
 {view === "People" && canManagePeople && (
           <>
-            {profile.role === "super_admin" && (
+            {isTeacher && (
               <div className="section-title">
                 <p>Add accounts directly, or approve sign-ups below.</p>
                 <button
@@ -4875,7 +4878,7 @@ const eligibleStudents = people
                 .map(p => {
                   const isPending = !p.active && Boolean(p.requested_role);
                   const isInactive = !p.active && !p.requested_role;
-                  const isSuperAdmin = profile.role === "super_admin";
+                  const isTeacher = profile.role === "supervisor";
                   const isSelf = p.id === profile.id;
 
                   return (
@@ -4907,7 +4910,7 @@ const eligibleStudents = people
                       </div>
 
                       {/* Super Admin Row Actions (Anchored to Far Right) */}
-                      {isSuperAdmin && (
+                      {isTeacher && (
                         <div className="ppl-actions" style={{ marginLeft: "auto", flex: "0 0 auto" }}>
                           {isPending ? (
                             <button
@@ -4992,7 +4995,6 @@ const eligibleStudents = people
                         <option value="student">Student</option>
                         <option value="student_leader">Student leader</option>
                         <option value="supervisor">Teacher</option>
-                        <option value="super_admin">Super admin</option>
                       </select>
                     </label>
 
@@ -5159,7 +5161,6 @@ const eligibleStudents = people
                         <option value="student">Student</option>
                         <option value="student_leader">Student leader</option>
                         <option value="supervisor">Teacher</option>
-                        <option value="super_admin">Super admin</option>
                       </select>
                     </label>
 
