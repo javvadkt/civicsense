@@ -111,6 +111,7 @@ type Attempt = {
   total?: number;
   submitted_at: string;
   status: "submitted" | "in_progress" | "abandoned";
+  autosaved_answers?: any;
 };
 
 type Availability = {
@@ -589,7 +590,7 @@ const [modalOpen, setModalOpen] = useState(false),
             s.access_token
           )
         : Promise.resolve([]),
-      request(route("quiz_attempts", `select=quiz_id,submitted_at,score,status&student_id=eq.${me.id}`), s.access_token),
+     request(route("quiz_attempts", `select=quiz_id,submitted_at,score,status,autosaved_answers&student_id=eq.${me.id}`), s.access_token),
       canTakeQuizzesRole
         ? request(
             route(
@@ -1016,17 +1017,51 @@ useEffect(() => {
     };
   }, [answers, activeQuiz, token, remaining]);
 
-  // Warn before leaving or closing during an active quiz
+ // Warn before leaving or closing during an active quiz
   useEffect(() => {
     if (!activeQuiz) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "You have a quiz in progress. Are you sure you want to leave?";
+      e.returnValue = "Closing or leaving this page will automatically submit your quiz. Are you sure?";
       return e.returnValue;
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [activeQuiz]);
+
+  // Automatically submit and finalize any quiz whose browser tab/window was closed
+  useEffect(() => {
+    if (!session || !profile?.active || activeQuiz || !attempts.length) return;
+    const activeSessionQuizId = typeof window !== "undefined" ? sessionStorage.getItem("civicprep_active_quiz_id") : null;
+    const orphaned = attempts.find(
+      a => a.status === "in_progress" && a.quiz_id !== activeSessionQuizId
+    );
+    if (orphaned) {
+      (async () => {
+        try {
+          let ans = orphaned.autosaved_answers;
+          if (!ans || Object.keys(ans).length === 0) {
+            try {
+              const local = localStorage.getItem(`civicprep_answers_${orphaned.quiz_id}`);
+              if (local) ans = JSON.parse(local);
+            } catch {}
+          }
+          await request("/rest/v1/rpc/submit_quiz", token, "POST", {
+            p_quiz_id: orphaned.quiz_id,
+            p_answers: ans || {}
+          });
+          try {
+            localStorage.removeItem(`civicprep_answers_${orphaned.quiz_id}`);
+            sessionStorage.removeItem(`civicprep_deadline_${orphaned.quiz_id}`);
+          } catch {}
+          flash("Your quiz was finalized and submitted because the previous tab or window was closed.");
+          await load(session);
+        } catch (e: any) {
+          console.error("Failed to auto-submit closed quiz attempt:", e);
+        }
+      })();
+    }
+  }, [session, profile?.active, attempts, activeQuiz, token, load]);
 
   // Early-End Heartbeat
   useEffect(() => {
@@ -3795,7 +3830,7 @@ const eligibleStudents = people
                           flexShrink: 0
                         }}
                       >
-                        {/* Test Taker Primary Card Button */}
+                       {/* Test Taker Primary Card Button */}
                         {canTakeQuizzes &&
                           (isSubmitted ? (
                             z.result_visibility === "after_release" && !z.results_published ? (
@@ -3805,9 +3840,13 @@ const eligibleStudents = people
                                 Review answers
                               </button>
                             ) : null
+                          ) : isInProgress ? (
+                            <button className="outline" disabled>
+                              Finalizing submission…
+                            </button>
                           ) : isLive ? (
                             <button className="primary" onClick={() => openQuiz(z)}>
-                              {hasDraft ? "Resume quiz" : "Start quiz"}
+                              Start quiz
                             </button>
                           ) : isUpcoming ? (
                             <button className="outline" disabled>
