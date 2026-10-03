@@ -54,7 +54,7 @@ type Props = {
 
 export default function DutyCalendar(p: Props) {
   const { duties, dutyDate, today, manage, review, busy, memberName } = p;
-  const isParticipant = ["student", "student_leader", "super_admin"].includes(p.profile.role);
+  const isParticipant = ["student", "student_leader"].includes(p.profile.role);
   const apiRef = useRef(p.api);
   apiRef.current = p.api;
 
