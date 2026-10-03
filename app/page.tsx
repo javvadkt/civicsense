@@ -823,7 +823,7 @@ useEffect(() => {
     setMockTimeRemaining(null);
   };
 
-  // Auto-reopen quiz if refreshed during an active session
+ // Auto-reopen quiz if refreshed during an active session with synchronized timer
   useEffect(() => {
     if (!session || !profile?.active || activeQuiz || !quizzes.length) return;
     try {
@@ -832,13 +832,21 @@ useEffect(() => {
       const matchQuiz = quizzes.find(q => q.id === savedQuizId);
       const hasSubmitted = attempts.some(a => a.quiz_id === savedQuizId);
       if (matchQuiz && !hasSubmitted) {
+        // If the saved deadline has already expired while the user was away, clear session
+        const savedDeadline = Number(sessionStorage.getItem(`civicprep_deadline_${savedQuizId}`) || "0");
+        if (savedDeadline > 0 && savedDeadline <= Date.now()) {
+          sessionStorage.removeItem("civicprep_active_quiz_id");
+          sessionStorage.removeItem(`civicprep_deadline_${savedQuizId}`);
+          return;
+        }
         openQuiz(matchQuiz);
       } else {
         sessionStorage.removeItem("civicprep_active_quiz_id");
+        sessionStorage.removeItem(`civicprep_deadline_${savedQuizId}`);
       }
     } catch {}
   }, [session, profile?.active, quizzes, attempts, activeQuiz]);
-
+  
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible" && session) load(session).catch((e: any) => setError(e.message));
@@ -970,6 +978,7 @@ useEffect(() => {
           try {
             localStorage.removeItem(`civicprep_answers_${activeQuiz.id}`);
             sessionStorage.removeItem("civicprep_active_quiz_id");
+            sessionStorage.removeItem(`civicprep_deadline_${activeQuiz.id}`);
           } catch {}
           if (session) await load(session);
           flash(
@@ -1267,10 +1276,11 @@ const links = [
     setQuizBusy(true);
     try {
       await request("/rest/v1/rpc/submit_quiz", token, "POST", { p_quiz_id: activeQuiz.id, p_answers: answers });
-      const quiz = activeQuiz;
+     const quiz = activeQuiz;
       try {
         localStorage.removeItem(`civicprep_answers_${quiz.id}`);
         sessionStorage.removeItem("civicprep_active_quiz_id");
+        sessionStorage.removeItem(`civicprep_deadline_${quiz.id}`);
       } catch {}
       setActiveQuiz(null);
       setDeadline(null);
@@ -1306,9 +1316,22 @@ const links = [
         ),
         token
       );
-      const items = q.map((x: any) => x.question).filter(Boolean);
+    const items = q.map((x: any) => x.question).filter(Boolean);
       if (!items.length) throw Error("This quiz has no available questions.");
-      const end = Math.min(new Date(started.started_at).getTime() + z.duration_minutes * 60_000, new Date(z.closes_at).getTime());
+
+      // Calculate server ceiling from started_at and closes_at
+      const startTime = started?.started_at ? new Date(started.started_at).getTime() : Date.now();
+      const serverCalculatedEnd = Math.min(
+        startTime + z.duration_minutes * 60_000,
+        new Date(z.closes_at).getTime()
+      );
+
+      // Check for an already active session deadline to eliminate timer resets on reload
+      const savedDeadlineStr = sessionStorage.getItem(`civicprep_deadline_${z.id}`);
+      const savedDeadline = savedDeadlineStr ? Number(savedDeadlineStr) : null;
+      const end = savedDeadline && !isNaN(savedDeadline) && savedDeadline <= serverCalculatedEnd
+        ? savedDeadline
+        : serverCalculatedEnd;
 
       let restoredAnswers: Record<string, number> = {};
       if (started?.autosaved_answers && typeof started.autosaved_answers === "object") {
@@ -1331,6 +1354,7 @@ const links = [
 
       try {
         sessionStorage.setItem("civicprep_active_quiz_id", z.id);
+        sessionStorage.setItem(`civicprep_deadline_${z.id}`, String(end));
       } catch {}
 
       setQuizQuestions(items);
