@@ -29,10 +29,7 @@ import {
   Edit,
   Eye,
   Filter,
-  RotateCcw,
-  Sparkles,
-  ChevronDown,
-  ChevronUp,
+ ChevronDown,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
@@ -41,6 +38,9 @@ import QuizBuilder, { QuizPayload } from "./QuizBuilder";
 
 const base = "https://dclxjishlusibfiedroo.supabase.co",
   key = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
+
+export const getTodayIST = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 
 type Session = {
   access_token: string;
@@ -140,8 +140,6 @@ const dutyStatuses: { [key: string]: string } = {
   excused: "Excused",
   missed: "Missed"
 };
-
-
 
 const topics = [
   "Polity",
@@ -491,14 +489,14 @@ export default function Home() {
   const [questionsModalLoading, setQuestionsModalLoading] = useState(false);
   const [questionsModalAttempts, setQuestionsModalAttempts] = useState<number>(0);
 
-  const isTeacher = profile?.role === "supervisor",
+ const isTeacher = profile?.role === "supervisor",
     canManageAcademics = isTeacher,
     canManagePeople = isTeacher,
     canManageDuties = isTeacher || profile?.role === "student_leader",
     canTakeQuizzes = ["student", "student_leader"].includes(profile?.role || ""),
     review = isTeacher,
     manage = canManageDuties,
-    today = new Date().toLocaleDateString("en-CA");
+    today = getTodayIST();
   
 // Switch tab and push browser history entry
   const navigateToTab = useCallback((nextTab: string, replace = false) => {
@@ -551,10 +549,11 @@ export default function Home() {
       setAttempts([]);
       return;
     }
-const showDirectory = isTeacher || me.role === "student_leader";
-  const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
+    const isTeacherRole = me.role === "supervisor";
+    const showDirectory = isTeacherRole || me.role === "student_leader";
+    const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
     const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
-      isTeacher
+      isTeacherRole
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
             rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
           )
@@ -1145,14 +1144,14 @@ useEffect(() => {
         }),
         n: any = await r.json();
       if (!r.ok) throw Error(n.error || "Could not create your account.");
-      if (
+    if (
         signupRole === "student" &&
         (n.signup_version !== "enrollment-v2" || String(n.member?.enrollment_number || "").trim() !== signupEnrollment.trim())
       )
         throw Error(
-          "Supabase accepted the signup but did not confirm the enrollment number. The account may already exist, so do not submit again yet. Ask the super admin to check People, then deploy the updated public-signup function."
+          "Supabase accepted the signup but did not confirm the enrollment number. The account may already exist. Ask your teacher to verify People, then deploy the updated public-signup function."
         );
-      setNotice("Account created and enrollment number saved. Wait for a super admin to activate your account.");
+      setNotice("Account created and enrollment number saved. Wait for a teacher to activate your account.");
       setSignupMode(false);
       setPassword("");
       setNewName("");
@@ -2084,13 +2083,13 @@ const eligibleStudents = people
       </main>
     );
 
-  if (!profile || !profile.active)
+ if (!profile || !profile.active)
     return (
       <main className="center">
         <div className="auth">
           <h1>Approval pending</h1>
           <p>
-            Your account was created and is waiting for super admin approval
+            Your account was created and is waiting for teacher approval
             {profile?.requested_role ? ` as ${profile.requested_role === "supervisor" ? "teacher" : "student"}` : ""}. Once
             approved, sign in again to open the workspace.
           </p>
@@ -2099,6 +2098,24 @@ const eligibleStudents = people
             Check approval
           </button>
           <button className="plain" onClick={logout}>
+            Sign out
+          </button>
+        </div>
+      </main>
+    );
+
+  const recognizedRoles = ["supervisor", "student_leader", "student"];
+  if (!recognizedRoles.includes(profile.role))
+    return (
+      <main className="center">
+        <div className="auth">
+          <h1>Invalid Account Role</h1>
+          <p>
+            Your account is assigned a legacy or unrecognized role (<code>{String(profile.role)}</code>).
+            The &quot;super admin&quot; role has been decommissioned. Please contact your teacher to update your role.
+          </p>
+          {error && <p className="error">{error}</p>}
+          <button className="primary" onClick={logout}>
             Sign out
           </button>
         </div>
@@ -2282,7 +2299,7 @@ const eligibleStudents = people
           )}
         </div>
 
-    {view === "Overview" && (() => {
+   {view === "Overview" && (() => {
           const todayDuty = duties.find(d => d.duty_date === today);
           const isViewerToday = todayDuty?.student_id === profile.id;
           const todayPerson = todayDuty
@@ -2291,7 +2308,7 @@ const eligibleStudents = people
           const todayEnrollment = todayDuty
             ? (todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id))
             : null;
-          const isStudentOrAdmin = ["student"].includes(profile.role); 
+          const isStudentParticipant = ["student", "student_leader"].includes(profile.role); 
 
           const sortedDuties = [...myDuties].sort((a, b) => {
             const aFuture = a.duty_date >= today;
@@ -2306,16 +2323,13 @@ const eligibleStudents = people
             <>
               <div className="intro">
                 <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
-               <p>
-  {profile.role === "supervisor"
-    ? "Create and activate accounts, oversee question review, and manage quizzes."
-    : profile.role === "student_leader"
-    ? "Do your own question duty like every student, and help run the rotation: assign, swap and edit duties."
-    : profile.role === "student" 
-    ? "Review and revise questions, monitor duty progress, and publish class quiz results."
-    : "Confirm your assigned duty, submit your questions, and complete live class quizzes."}
-</p>
-
+                <p>
+                  {profile.role === "supervisor"
+                    ? "Review questions, manage members, schedule duties, and publish quizzes."
+                    : profile.role === "student_leader"
+                    ? "Do your question duties, and assist with managing the rotation: assign, swap and edit duties."
+                    : "Confirm your assigned duty, submit your questions, and take class quizzes."}
+                </p>
               </div>
 
               {/* Today's Duty Card (All Roles) */}
@@ -2475,8 +2489,8 @@ const eligibleStudents = people
                 </section>
               )}
 
-              {/* My Duties List (Student & Super Admin) */}
-              {isStudentOrAdmin && (
+            {/* My Duties List (Students & Student Leaders) */}
+              {isStudentParticipant && (
                 <section className="card my-duties-card">
                   <div className="card-head-row">
                     <div>
@@ -3714,7 +3728,7 @@ const eligibleStudents = people
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
                           <strong style={{ fontSize: "16px" }}>{z.title}</strong>
                           <span className={`tag ${statusTag.cls}`}>{statusTag.label}</span>
-                          {isHidden && <span className="tag pending">Admin only</span>}
+                          {isHidden && <span className="tag pending">Teacher only</span>}
                         </div>
                         <div style={{ fontSize: "13px", color: "var(--muted-fg,#64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <span>{z.kind}</span>
@@ -4748,7 +4762,7 @@ const eligibleStudents = people
               </div>
             )}
 
-            {/* Super Admin: Add Member Modal */}
+            {/* Teacher: Add Member Modal */}
             {profile.role === "supervisor" && memberModal && (
               <div
                 className="modal-backdrop"
@@ -4874,7 +4888,6 @@ const eligibleStudents = people
                 .map(p => {
                   const isPending = !p.active && Boolean(p.requested_role);
                   const isInactive = !p.active && !p.requested_role;
-                  const isTeacher = profile.role === "supervisor";
                   const isSelf = p.id === profile.id;
 
                   return (
