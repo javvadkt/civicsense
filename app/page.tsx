@@ -107,9 +107,10 @@ type Quiz = {
 
 type Attempt = {
   quiz_id: string;
-  score: number;
-  total: number;
+  score: number | null;
+  total?: number;
   submitted_at: string;
+  status: "submitted" | "in_progress" | "abandoned";
 };
 
 type Availability = {
@@ -579,7 +580,7 @@ const [modalOpen, setModalOpen] = useState(false),
             s.access_token
           )
         : Promise.resolve([]),
-      request(route("quiz_attempts", `select=quiz_id,submitted_at,score&student_id=eq.${me.id}`), s.access_token),
+      request(route("quiz_attempts", `select=quiz_id,submitted_at,score,status&student_id=eq.${me.id}`), s.access_token),
       canTakeQuizzesRole
         ? request(
             route(
@@ -883,7 +884,7 @@ useEffect(() => {
       const savedQuizId = sessionStorage.getItem("civicprep_active_quiz_id");
       if (!savedQuizId) return;
       const matchQuiz = quizzes.find(q => q.id === savedQuizId);
-      const hasSubmitted = attempts.some(a => a.quiz_id === savedQuizId);
+      const hasSubmitted = attempts.some(a => a.quiz_id === savedQuizId && a.status === "submitted");
       if (matchQuiz && !hasSubmitted) {
         // If the saved deadline has already expired while the user was away, clear session
         const savedDeadline = Number(sessionStorage.getItem(`civicprep_deadline_${savedQuizId}`) || "0");
@@ -893,7 +894,7 @@ useEffect(() => {
           return;
         }
         openQuiz(matchQuiz);
-      } else {
+      } else if (hasSubmitted) {
         sessionStorage.removeItem("civicprep_active_quiz_id");
         sessionStorage.removeItem(`civicprep_deadline_${savedQuizId}`);
       }
@@ -1006,10 +1007,17 @@ useEffect(() => {
     };
   }, [answers, activeQuiz, token, remaining]);
 
-  // Early-End Heartbeat
+  // Warn before leaving or closing during an active quiz
   useEffect(() => {
-    if (!activeQuiz || !token) return;
-    const poller = setInterval(async () => {
+    if (!activeQuiz) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "You have a quiz in progress. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [activeQuiz]);
       try {
         const rows = await request(
           route("quizzes", `id=eq.${activeQuiz.id}&select=ended_early_at,closes_at`),
@@ -3660,6 +3668,8 @@ const eligibleStudents = people
                 })
                 .map(z => {
                   const attempt = myAttempts.get(z.id);
+                  const isSubmitted = attempt?.status === "submitted";
+                  const isInProgress = attempt?.status === "in_progress";
                   const o = new Date(z.opens_at).getTime(),
                     e = new Date(z.closes_at).getTime();
                   const isEndedEarly = Boolean(z.ended_early_at);
@@ -3676,8 +3686,8 @@ const eligibleStudents = people
                     ? { label: "Upcoming", cls: "pending" }
                     : { label: isEndedEarly ? "Ended early" : "Closed", cls: "revision_requested" };
 
-             const isLeader = profile.role === "student_leader";
-                  const hasDraft = !attempt && typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`));
+                  const isLeader = profile.role === "student_leader";
+                  const hasDraft = (isInProgress || Boolean(typeof window !== "undefined" && localStorage.getItem(`civicprep_answers_${z.id}`)));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
                   // Academic controller privileges (Teacher only)
@@ -3687,7 +3697,7 @@ const eligibleStudents = people
                   const canReviewAnswers =
                     canTakeQuizzes &&
                     isClosed &&
-                    attempt &&
+                    isSubmitted &&
                     (z.result_visibility === "immediate" || z.results_published);
                   const canStartNow = canManageAcademics && isUpcoming;
                   const canEditQuiz = canManageAcademics && isUpcoming;
@@ -3695,7 +3705,6 @@ const eligibleStudents = people
                   const canRecalculate = canManageAcademics;
                   const canToggleHide = canManageAcademics;
                   const canDelete = canManageAcademics;
-
                   // Kebab menu visibility rules:
                   // 1. Test takers (Students & Super Admin): ONLY visible on Closed quizzes when they can review answers
                   // 2. Teachers & Student Leaders: visible for management actions (Attendees, Edit, etc.)
@@ -3749,12 +3758,16 @@ const eligibleStudents = people
                           <span>•</span>
                           <span>Results {z.result_visibility === "immediate" ? "immediate" : "after release"}</span>
                         </div>
-                        {attempt && (
+                        {isSubmitted ? (
                           <small className="attended" style={{ display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
                             <CheckCircle2 size={14} /> Attended • Submitted{" "}
                             {new Date(attempt.submitted_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </small>
-                        )}
+                        ) : isInProgress && isLive ? (
+                          <small style={{ display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "6px", color: "#d97706", fontWeight: 600 }}>
+                            <Timer size={14} /> In progress • Answers autosaved
+                          </small>
+                        ) : null}
                       </div>
 
                       {/* Action Area: Pinned to the far right on both desktop and mobile */}
@@ -3769,9 +3782,9 @@ const eligibleStudents = people
                           flexShrink: 0
                         }}
                       >
-                       {/* Test Taker Primary Card Button (Students, Leaders, Super Admin) */}
+                       {/* Test Taker Primary Card Button (Students, Leaders) */}
                         {canTakeQuizzes &&
-                          (attempt ? (
+                          (isSubmitted ? (
                             z.result_visibility === "after_release" && !z.results_published ? (
                               <span className="tag pending">Results pending</span>
                             ) : isLive ? (
