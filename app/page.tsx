@@ -1981,29 +1981,34 @@ function logout() {
           {renderProfileMenu("side")}
         </div>
 
-        <nav>
-          {links.map(x => {
-            const Icon = navIcons[x];
-            return (
-              <button
-                key={x}
-                className={view === x ? "active" : ""}
-                onClick={() => {
-                  setView(x);
-                  setActiveQuiz(null);
-                  setSelectedResult(null);
-                }}
-              >
-                <span className="nav-icon">
-                  <Icon size={18} />
-                </span>
-                {x}
-                {x === "Review queue" && pending.length > 0 && <b>{pending.length}</b>}
-                {x === "Quizzes" && liveUnsubmitted > 0 && <b className="live-count">{liveUnsubmitted}</b>}
-              </button>
-            );
-         })}
-        </nav>
+        <div className="side-nav-wrap">
+          <nav>
+            {links.map(x => {
+              const Icon = navIcons[x];
+              return (
+                <button
+                  key={x}
+                  className={view === x ? "active" : ""}
+                  onClick={() => {
+                    setView(x);
+                    setActiveQuiz(null);
+                    setSelectedResult(null);
+                  }}
+                >
+                  <span className="nav-icon">
+                    <Icon size={18} />
+                  </span>
+                  {x}
+                  {x === "Review queue" && pending.length > 0 && <b>{pending.length}</b>}
+                  {x === "Quizzes" && liveUnsubmitted > 0 && <b className="live-count">{liveUnsubmitted}</b>}
+                </button>
+              );
+            })}
+          </nav>
+          <span className="nav-scroll-hint" aria-hidden="true">
+            <ChevronRight size={16} />
+          </span>
+        </div>
 
         {/* Pinned Desktop Profile / Sign out Box */}
         <div className="desktop-identity identity">
@@ -2018,7 +2023,7 @@ function logout() {
       </aside>
 
       <div className="main">
-        <header>
+      <header>
           <div>
             <span className="eyebrow">UPSC FOUNDATION · LIVE WORKSPACE</span>
             <h1>{view}</h1>
@@ -2029,7 +2034,6 @@ function logout() {
                 <RefreshCw size={14} /> Updating
               </span>
             )}
-              {renderProfileMenu("header")}
           </div>
         </header>
 
@@ -2297,18 +2301,16 @@ function logout() {
 
         {view === "Question bank" && (
           <>
-            <div className="section-title">
-              <div>
-                <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
-              </div>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+<div className="section-title qb-section-title">
+              <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
+              <div className="qb-header-actions">
                 {!review && (
                   <button className="outline" onClick={() => { setMockTopics([]); setMockModalOpen(true); }}>
-                    <Play size={16} /> Practice mock quiz
+                    <Play size={15} /> Practice
                   </button>
                 )}
                 <button className="primary" onClick={() => openQuestion()}>
-                  <Plus size={16} /> Add question
+                  <Plus size={15} /> Add
                 </button>
               </div>
             </div>
@@ -2580,18 +2582,19 @@ function logout() {
                 </h3>
                 {bankLoading && <span className="muted"><RefreshCw size={14} /> Updating list…</span>}
               </div>
-
-             {bankQuestions.map(q => {
+{bankQuestions.map(q => {
                 const canStudentEdit = !review && q.author_id === profile.id && ["pending", "revision_requested"].includes(q.status);
                 const authorDisplay = q.author?.full_name ? memberName(q.author_id, q.author.full_name) : "Contributor";
                 const createdDate = new Date(q.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
                 return (
-                  <details className="question" key={q.id}>
-                    <summary>
-                      <div style={{ flex: 1, minWidth: 0, paddingRight: "10px" }}>
-                        <strong style={{ fontSize: "15px", lineHeight: 1.4 }}>{q.stem}</strong>
-                        <small style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
+                  <details className="question qb-question-item" key={q.id}>
+                    <summary className="qb-question-summary">
+                      <div className="qb-question-stem">
+                        <strong>{q.stem}</strong>
+                      </div>
+                      <div className="qb-question-footer">
+                        <div className="qb-question-meta">
                           <span>{q.topic}</span>
                           {q.is_special && <span className="tag pending" style={{ padding: "2px 6px", fontSize: "11px" }}>Special</span>}
                           {review && (
@@ -2603,95 +2606,95 @@ function logout() {
                           <span>{authorDisplay}</span>
                           <span>•</span>
                           <span>{createdDate}</span>
-                        </small>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                        <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
-                        {/* Kebab menu on summary row for teachers and admins */}
-                        {review && (
-                          <div
-                            className="qz-menu-container"
-                            style={{ position: "relative" }}
-                            onClick={e => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className="icon-button"
-                              style={{ width: "32px", height: "32px", padding: 0 }}
-                              aria-label="Question actions"
+                        </div>
+                        <div className="qb-question-badge-kebab" onClick={e => e.stopPropagation()}>
+                          <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
+                          {/* Kebab menu on summary row for teachers and admins */}
+                          {review && (
+                            <div
+                              className="qz-menu-container"
+                              style={{ position: "relative" }}
                               onClick={e => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setBankMenuQId(bankMenuQId === q.id ? null : q.id);
                               }}
                             >
-                              <MoreVertical size={16} />
-                            </button>
-
-                            {bankMenuQId === q.id && (
-                              <div
-                                className="qz-pop"
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: "calc(100% + 4px)",
-                                  background: "var(--surface, #ffffff)",
-                                  border: "1px solid var(--border, #e2e8f0)",
-                                  borderRadius: "8px",
-                                  boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
-                                  minWidth: "160px",
-                                  zIndex: 30,
-                                  overflow: "hidden",
-                                  display: "flex",
-                                  flexDirection: "column"
+                              <button
+                                type="button"
+                                className="icon-button"
+                                style={{ width: "32px", height: "32px", padding: 0 }}
+                                aria-label="Question actions"
+                                onClick={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setBankMenuQId(bankMenuQId === q.id ? null : q.id);
                                 }}
                               >
-                                <button
-                                  type="button"
-                                  className="plain"
+                                <MoreVertical size={16} />
+                              </button>
+
+                              {bankMenuQId === q.id && (
+                                <div
+                                  className="qz-pop"
                                   style={{
-                                    textAlign: "left",
-                                    padding: "10px 14px",
-                                    fontSize: "13px",
-                                    width: "100%",
+                                    position: "absolute",
+                                    right: 0,
+                                    top: "calc(100% + 4px)",
+                                    background: "var(--surface, #ffffff)",
+                                    border: "1px solid var(--border, #e2e8f0)",
+                                    borderRadius: "8px",
+                                    boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+                                    minWidth: "160px",
+                                    zIndex: 30,
+                                    overflow: "hidden",
                                     display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px"
-                                  }}
-                                  onClick={() => {
-                                    setBankMenuQId(null);
-                                    openQuestion(q);
+                                    flexDirection: "column"
                                   }}
                                 >
-                                  <Edit size={14} /> Edit question
-                                </button>
-                                <button
-                                  type="button"
-                                  className="plain"
-                                  style={{
-                                    textAlign: "left",
-                                    padding: "10px 14px",
-                                    fontSize: "13px",
-                                    width: "100%",
-                                    color: "#ef4444",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px"
-                                  }}
-                                  onClick={() => {
-                                    setBankMenuQId(null);
-                                    setDeleteQuestionTarget(q);
-                                  }}
-                                >
-                                  <X size={14} /> Delete question
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                                  <button
+                                    type="button"
+                                    className="plain"
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
+                                    onClick={() => {
+                                      setBankMenuQId(null);
+                                      openQuestion(q);
+                                    }}
+                                  >
+                                    <Edit size={14} /> Edit question
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="plain"
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "10px 14px",
+                                      fontSize: "13px",
+                                      width: "100%",
+                                      color: "#ef4444",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px"
+                                    }}
+                                    onClick={() => {
+                                      setBankMenuQId(null);
+                                      setDeleteQuestionTarget(q);
+                                    }}
+                                  >
+                                    <X size={14} /> Delete question
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </summary>
 
@@ -4497,7 +4500,7 @@ function logout() {
                   const isSelf = p.id === profile.id;
 
                   return (
-                    <div className="row member ppl-row" key={p.id}>
+                 <div className="row member ppl-row" key={p.id}>
                       <div className="ppl-info">
                         <strong>
                           {p.full_name}
@@ -4524,9 +4527,9 @@ function logout() {
                         </div>
                       </div>
 
-                      {/* Super Admin Row Actions */}
+                      {/* Super Admin Row Actions (Anchored to Far Right) */}
                       {isSuperAdmin && (
-                        <div className="ppl-actions">
+                        <div className="ppl-actions" style={{ marginLeft: "auto", flex: "0 0 auto" }}>
                           {isPending ? (
                             <button
                               className="primary"
