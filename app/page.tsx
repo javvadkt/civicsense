@@ -2330,30 +2330,59 @@ function logout() {
                   />
                 </div>
 
-                {/* Quick Chips */}
-                <div className="qb-quick-chips">
-                  {[
-                    { id: "all", label: "All" },
-                    ...(!review ? [{ id: "mine", label: "Mine" }] : []),
-                    { id: "approved", label: "Approved" },
-                    { id: "pending", label: "Waiting" },
-                    { id: "revision_requested", label: "Needs revision" }
-                  ].map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`qb-quick-btn ${bankQuick === c.id ? "active" : ""}`}
-                      onClick={() => {
-                        setBankQuick(c.id as any);
-                        if (c.id === "all") {
-                          setBankStatus("all");
-                          setBankOnlyMine(false);
-                        }
-                      }}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
+             {/* Quick Chips & Staff Quiz Usage Filter */}
+                <div className="qb-filters-row" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div className="qb-quick-chips">
+                    {[
+                      { id: "all", label: "All" },
+                      ...(!review ? [{ id: "mine", label: "Mine" }] : []),
+                      { id: "approved", label: "Approved" },
+                      { id: "pending", label: "Waiting" },
+                      { id: "revision_requested", label: "Needs revision" }
+                    ].map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`qb-quick-btn ${bankQuick === c.id ? "active" : ""}`}
+                        onClick={() => {
+                          setBankQuick(c.id as any);
+                          if (c.id === "all") {
+                            setBankStatus("all");
+                            setBankOnlyMine(false);
+                          }
+                        }}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Staff 1-Click Quiz Usage Toggle */}
+                  {review && (
+                    <div className="qb-usage-toggle" title="Filter by whether question was tested in a quiz">
+                      <button
+                        type="button"
+                        className={`qb-usage-btn ${bankQuizUsage === "all" ? "active" : ""}`}
+                        onClick={() => setBankQuizUsage("all")}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`qb-usage-btn fresh ${bankQuizUsage === "unused" ? "active" : ""}`}
+                        onClick={() => setBankQuizUsage(bankQuizUsage === "unused" ? "all" : "unused")}
+                      >
+                        ★ Fresh only
+                      </button>
+                      <button
+                        type="button"
+                        className={`qb-usage-btn ${bankQuizUsage === "used" ? "active" : ""}`}
+                        onClick={() => setBankQuizUsage(bankQuizUsage === "used" ? "all" : "used")}
+                      >
+                        Used in quiz
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Sort & More Filters Buttons */}
