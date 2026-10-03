@@ -68,35 +68,40 @@ export default function DutyCalendar(p: Props) {
     return isNaN(d.getTime()) ? new Date().getMonth() : d.getMonth();
   });
 
-  // Fetch duties of the currently viewed month
+ // Fetch duties of the currently viewed month
   const [monthDuties, setMonthDuties] = useState<any[]>([]);
-  const fetchMonthDuties = useCallback(async (year: number, month: number) => {
-    const startStr = `${year}-${pad(month + 1)}-01`;
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const endStr = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
-    try {
-      const res = await apiRef.current(
-        `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
-      );
-      if (Array.isArray(res)) setMonthDuties(res);
-    } catch {
-      try {
-        const fallback = await apiRef.current(
-          `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
-        );
-        if (Array.isArray(fallback)) {
-          setMonthDuties(fallback.map((d: any) => ({ ...d, duty_status: "assigned", status_note: null })));
-        }
-      } catch {
-        setMonthDuties([]);
-      }
-    }
-  }, []);
 
   useEffect(() => {
-    fetchMonthDuties(viewYear, viewMonth);
-  }, [viewYear, viewMonth, fetchMonthDuties]);
+    let active = true;
+    const startStr = `${viewYear}-${pad(viewMonth + 1)}-01`;
+    const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const endStr = `${viewYear}-${pad(viewMonth + 1)}-${pad(lastDay)}`;
 
+    (async () => {
+      try {
+        const res = await apiRef.current(
+          `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
+        );
+        if (active && Array.isArray(res)) setMonthDuties(res);
+      } catch {
+        try {
+          const fallback = await apiRef.current(
+            `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
+          );
+          if (active && Array.isArray(fallback)) {
+            setMonthDuties(fallback.map((d: any) => ({ ...d, duty_status: "assigned", status_note: null })));
+          }
+        } catch {
+          if (active) setMonthDuties([]);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [viewYear, viewMonth]);
+  
   // Combine shared duties with visible month duties
   const byDate = useMemo(() => {
     const map = new Map<string, any>();
@@ -510,9 +515,9 @@ export default function DutyCalendar(p: Props) {
               <p>Prepare {selected.target_count} current-affairs questions for this date.</p>
             </div>
 
-            {/* ONE Fixed Action Bar at Top-Right */}
+           {/* ONE Fixed Action Bar at Top-Right */}
             <div className="dc-action-bar">
-              {/* Teacher and Admin Actions */}
+              {/* Teacher Review Actions */}
               {review && (
                 <>
                   {status !== "reviewed" && (
