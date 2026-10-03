@@ -484,9 +484,9 @@ export default function Home() {
       setAttempts([]);
       return;
     }
-    const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
+ const showDirectory = ["super_admin", "supervisor", "student_leader"].includes(me.role);
     const canTakeQuizzes = ["student", "student_leader"].includes(me.role);
-    const [q, d, z, m, a, myDutyRows, summaryRes] = await Promise.all([
+    const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
       me.role === "super_admin" || me.role === "supervisor"
         ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
             rows.map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
@@ -524,9 +524,16 @@ export default function Home() {
         : Promise.resolve([]),
       canTakeQuizzes
         ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}).catch(() => null)
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      request(route("quiz_questions", "select=question_id"), s.access_token).catch(() => [])
     ]);
-    setQuestions(q || []);
+
+    const usedIds = new Set((usedQRows || []).map((r: any) => r.question_id));
+    const questionsWithUsage = (q || []).map((item: any) => ({
+      ...item,
+      is_used_in_quiz: item.is_used_in_quiz !== undefined ? Boolean(item.is_used_in_quiz) : usedIds.has(item.id)
+    }));
+    setQuestions(questionsWithUsage);
     setDuties(d || []);
     setQuizzes(z || []);
     setPeople(m || []);
