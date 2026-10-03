@@ -153,7 +153,19 @@ const topics = [
   "Reports & indices",
   "Other"
 ];
+const tabSlugs: Record<string, string> = {
+  Overview: "overview",
+  "Question bank": "question-bank",
+  Quizzes: "quizzes",
+  "Duty calendar": "duty-calendar",
+  "Marks summary": "marks-summary",
+  "Review queue": "review-queue",
+  People: "people"
+};
 
+const slugToTab: Record<string, string> = Object.fromEntries(
+  Object.entries(tabSlugs).map(([tab, slug]) => [slug, tab])
+);
 const promptText = `Convert the supplied UPSC current-affairs material into importable multiple-choice questions. Return only valid JSON (no Markdown fences) in this shape:
 {
   "questions": [{
@@ -309,7 +321,15 @@ function Source({ value }: { value: string | null | undefined }) {
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null),
     [profile, setProfile] = useState<Profile | null>(null),
-    [view, setView] = useState("Overview"),
+    [view, setView] = useState(() => {
+      if (typeof window !== "undefined") {
+        const h = window.location.hash.replace(/^#/, "");
+        if (h && !h.includes("access_token") && slugToTab[h]) {
+          return slugToTab[h];
+        }
+      }
+      return "Overview";
+    }),
     [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false),
     [error, setError] = useState(""),
@@ -479,7 +499,41 @@ export default function Home() {
     review = canManageAcademics,
     manage = canManageDuties,
     today = new Date().toLocaleDateString("en-CA");
+  
+// Switch tab and push browser history entry
+  const navigateToTab = useCallback((nextTab: string, replace = false) => {
+    setView(nextTab);
+    setActiveQuiz(null);
+    setSelectedResult(null);
 
+    const slug = tabSlugs[nextTab] || "overview";
+    const newHash = `#${slug}`;
+    if (window.location.hash !== newHash) {
+      if (replace) {
+        window.history.replaceState({ tab: nextTab }, "", newHash);
+      } else {
+        window.history.pushState({ tab: nextTab }, "", newHash);
+      }
+    }
+  }, []);
+
+  // Listen to browser Back / Forward navigation
+  useEffect(() => {
+    const onPopState = () => {
+      const h = window.location.hash.replace(/^#/, "");
+      if (h && !h.includes("access_token") && slugToTab[h]) {
+        setView(slugToTab[h]);
+        setActiveQuiz(null);
+        setSelectedResult(null);
+      } else if (!h) {
+        setView("Overview");
+        setActiveQuiz(null);
+        setSelectedResult(null);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   const load = useCallback(async (s: Session) => {
     const p = await request(
         route("profiles", `id=eq.${s.user.id}&select=id,full_name,role,active,requested_role,enrollment_number`),
@@ -2167,11 +2221,7 @@ const eligibleStudents = people
                 <button
                   key={x}
                   className={view === x ? "active" : ""}
-                  onClick={() => {
-                    setView(x);
-                    setActiveQuiz(null);
-                    setSelectedResult(null);
-                  }}
+                  onClick={() => navigateToTab(x)}
                 >
                   <span className="nav-icon">
                     <Icon size={18} />
