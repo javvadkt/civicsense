@@ -2045,7 +2045,7 @@ const eligibleStudents = people
           <span className="logo">
             <BookOpen />
           </span>
-          <h1>{recoveryMode ? "Set or reset password" : signupMode ? "Create your account" : "CivicPrep"}</h1>
+          <h1>{recoveryMode ? "Set or reset password" : signupMode ? "Create your account" : "GpaDhiu"}</h1>
           <p>
             {recoveryMode
               ? "We will email you a fresh link to choose a password."
