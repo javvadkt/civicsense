@@ -2279,7 +2279,7 @@ const eligibleStudents = people
             </span>
             <span>
               <strong>GpaDhiu</strong>
-              <small>Current affairs hub</small>
+              <small>Current Affairs Hub</small>
             </span>
           </div>
 
