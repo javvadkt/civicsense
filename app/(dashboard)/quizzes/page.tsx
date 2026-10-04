@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useAuth, request } from "../../../context/AuthContext";
 import { useAppData, Quiz } from "../../../context/DataProvider";
+import QuizBuilder, { QuizPayload } from "../../QuizBuilder";
+import QuizAttendeesModal from "../../../components/QuizAttendeesModal";
 
 function QuizzesListContent() {
   const { session, profile, flash, setError } = useAuth();
@@ -27,6 +29,9 @@ function QuizzesListContent() {
 
   const [clock, setClock] = useState(() => Date.now());
   const [menuQuizId, setMenuQuizId] = useState<string | null>(null);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [editingQuiz, setEditingQuiz] = useState<any | null>(null);
+  const [attendeesQuiz, setAttendeesQuiz] = useState<Quiz | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 30_000);
@@ -44,6 +49,16 @@ function QuizzesListContent() {
   const isLeader = profile?.role === "student_leader";
   const canManageAcademics = isTeacher;
   const canTakeQuizzes = ["student", "student_leader"].includes(profile?.role || "");
+
+  const approvedQuestions = useMemo(
+    () => questions.filter(q => q.status === "approved"),
+    [questions]
+  );
+
+  const memberName = (id: string, name: string) => {
+    const enroll = people.find(p => p.id === id)?.enrollment_number;
+    return enroll ? `${name} · ${enroll}` : name;
+  };
 
   const myAttempts = useMemo(() => new Map(attempts.map(a => [a.quiz_id, a])), [attempts]);
 
@@ -95,6 +110,64 @@ function QuizzesListContent() {
     }
   }
 
+  async function handleCreateQuiz(p: QuizPayload) {
+    await request("/rest/v1/rpc/create_quiz_with_settings", token, "POST", {
+      p_title: p.title,
+      p_kind: p.kind,
+      p_question_ids: p.ids,
+      p_opens_at: new Date(p.opens).toISOString(),
+      p_closes_at: new Date(p.closes).toISOString(),
+      p_duration_minutes: p.duration,
+      p_result_visibility: p.visibility
+    });
+    await reload();
+    flash("Quiz created and published.");
+  }
+
+  async function handleOpenEditQuiz(z: Quiz) {
+    setError("");
+    setMenuQuizId(null);
+    try {
+      const qRows = await request(
+        `/rest/v1/quiz_questions?quiz_id=eq.${z.id}&select=question_id,position&order=position.asc`,
+        token
+      );
+      setEditingQuiz({
+        id: z.id,
+        title: z.title,
+        kind: z.kind,
+        opens_at: z.opens_at,
+        closes_at: z.closes_at,
+        duration_minutes: z.duration_minutes,
+        result_visibility: z.result_visibility,
+        question_ids: (qRows || []).map((r: any) => r.question_id)
+      });
+      setBuilderOpen(true);
+    } catch (e: any) {
+      setError(e.message || "Failed to load quiz details for editing.");
+    }
+  }
+
+  async function handleUpdateQuiz(id: string, p: QuizPayload) {
+    await request(`/rest/v1/quizzes?id=eq.${id}`, token, "PATCH", {
+      title: p.title,
+      kind: p.kind,
+      opens_at: new Date(p.opens).toISOString(),
+      closes_at: new Date(p.closes).toISOString(),
+      duration_minutes: p.duration,
+      result_visibility: p.visibility
+    });
+    await request(`/rest/v1/quiz_questions?quiz_id=eq.${id}`, token, "DELETE");
+    if (p.ids.length > 0) {
+      const rows = p.ids.map((qId, idx) => ({ quiz_id: id, question_id: qId, position: idx + 1 }));
+      await request("/rest/v1/quiz_questions", token, "POST", rows, "return=minimal");
+    }
+    await reload();
+    flash("Quiz updated successfully.");
+    setEditingQuiz(null);
+    setBuilderOpen(false);
+  }
+
   async function handleDeleteQuiz(z: Quiz) {
     if (!confirm(`Are you sure you want to delete "${z.title}"? This cannot be undone.`)) return;
     setError("");
@@ -121,16 +194,33 @@ function QuizzesListContent() {
 
   return (
     <>
-      {canManageAcademics && (
+     {canManageAcademics && (
         <div className="section-title">
           <p>Create timed quizzes from approved questions.</p>
           <button
             className="primary"
-            onClick={() => flash("QuizBuilder opens in Step 2.4b.")}
+            onClick={() => {
+              setEditingQuiz(null);
+              setBuilderOpen(true);
+            }}
           >
             <Plus size={16} /> Create quiz
           </button>
         </div>
+      )}
+
+      {builderOpen && canManageAcademics && (
+        <QuizBuilder
+          questions={approvedQuestions}
+          memberName={memberName}
+          onCreate={handleCreateQuiz}
+          onUpdate={handleUpdateQuiz}
+          onClose={() => {
+            setBuilderOpen(false);
+            setEditingQuiz(null);
+          }}
+          editingQuiz={editingQuiz}
+        />
       )}
 
       {/* Filter Tabs */}
@@ -352,7 +442,7 @@ function QuizzesListContent() {
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
                               onClick={() => {
                                 setMenuQuizId(null);
-                                flash("Attendees modal opens in Step 2.4b.");
+                                setAttendeesQuiz(z);
                               }}
                             >
                               <Users size={15} /> Attendees
@@ -398,14 +488,11 @@ function QuizzesListContent() {
                             </button>
                           )}
 
-                          {canEditQuiz && (
+                         {canEditQuiz && (
                             <button
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
-                              onClick={() => {
-                                setMenuQuizId(null);
-                                flash("Quiz edit opens in Step 2.4b.");
-                              }}
+                              onClick={() => handleOpenEditQuiz(z)}
                             >
                               <Edit size={15} /> Edit quiz
                             </button>
@@ -482,8 +569,17 @@ function QuizzesListContent() {
             );
           })}
 
-        {!quizzes.length && <div className="empty">No quizzes have been published.</div>}
+       {!quizzes.length && <div className="empty">No quizzes have been published.</div>}
       </div>
+
+      <QuizAttendeesModal
+        quiz={attendeesQuiz}
+        isOpen={Boolean(attendeesQuiz)}
+        onClose={() => setAttendeesQuiz(null)}
+        token={token}
+        flash={flash}
+        setError={setError}
+      />
     </>
   );
 }
