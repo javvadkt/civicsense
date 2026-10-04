@@ -2598,7 +2598,7 @@ const eligibleStudents = people
           );
         })()}
 
-        {view === "Question bank" && (
+        {view === "Question bank" && canManagePeople && (
           <>
 <div className="section-title qb-section-title">
               <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
