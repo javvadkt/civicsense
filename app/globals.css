@@ -1808,3 +1808,33 @@
     max-width: 180px;
   }
 }
+
+/* Navigation Links (App Router) */
+.side nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: #52647c;
+  text-align: left;
+  padding: 12px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.side nav a:hover,
+.side nav a.active {
+  background: #eaf2fb;
+  color: #1c548c;
+}
+@media (max-width: 750px) {
+  .side nav a {
+    white-space: nowrap;
+    padding: 10px;
+  }
+  .side nav a svg {
+    display: none;
+  }
+}
