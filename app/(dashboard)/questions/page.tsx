@@ -18,6 +18,7 @@ import {
 import { useAuth, request } from "../../../context/AuthContext";
 import { useAppData, Question } from "../../../context/DataProvider";
 import QuestionFilterDrawer from "../../../components/QuestionFilterDrawer";
+import QuestionEditorModal from "../../../components/QuestionEditorModal";
 
 const topics = [
   "Polity",
@@ -79,6 +80,8 @@ export default function QuestionsPage() {
   const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
   const [deleteQuestionTarget, setDeleteQuestionTarget] = useState<Question | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [questionToEdit, setQuestionToEdit] = useState<Question | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setBankDebouncedSearch(bankSearchInput.trim()), 350);
@@ -197,13 +200,19 @@ export default function QuestionsPage() {
     <>
       <div className="section-title qb-section-title">
         <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
-        <div className="qb-header-actions">
+<div className="qb-header-actions">
           {!isTeacher && (
-            <button className="outline" onClick={() => flash("Practice test setup dialog opens in Step 2.2b.")}>
+            <button className="outline" onClick={() => flash("Practice mock quiz runner opens in Step 2.2c.")}>
               <Play size={15} /> Practice
             </button>
           )}
-          <button className="primary" onClick={() => flash("Question editor opens in Step 2.2b.")}>
+          <button
+            className="primary"
+            onClick={() => {
+              setQuestionToEdit(null);
+              setEditorOpen(true);
+            }}
+          >
             <Plus size={15} /> Add Question
           </button>
         </div>
@@ -446,13 +455,14 @@ export default function QuestionsPage() {
                               flexDirection: "column"
                             }}
                           >
-                            <button
+                          <button
                               type="button"
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
                               onClick={() => {
                                 setBankMenuQId(null);
-                                flash("Question editor opens in Step 2.2b.");
+                                setQuestionToEdit(q);
+                                setEditorOpen(true);
                               }}
                             >
                               <Edit size={14} /> Edit question
@@ -519,7 +529,13 @@ export default function QuestionsPage() {
 
               {canStudentEdit && (
                 <div className="actions" style={{ marginTop: "12px" }}>
-                  <button className="outline" onClick={() => flash("Question editor opens in Step 2.2b.")}>
+                  <button
+                    className="outline"
+                    onClick={() => {
+                      setQuestionToEdit(q);
+                      setEditorOpen(true);
+                    }}
+                  >
                     Edit
                   </button>
                 </div>
@@ -558,6 +574,20 @@ export default function QuestionsPage() {
           </div>
         )}
       </section>
+
+      <QuestionEditorModal
+        isOpen={editorOpen}
+        onClose={() => {
+          setEditorOpen(false);
+          setQuestionToEdit(null);
+        }}
+        questionToEdit={questionToEdit}
+        onSaved={() => loadQuestionBank(bankOffset, false)}
+        isTeacher={isTeacher}
+        token={token}
+        flash={flash}
+        setError={setError}
+      />
 
       {deleteQuestionTarget && (
         <div
