@@ -50,7 +50,7 @@ export default function AddMemberModal({
           enrollment_number: role === "supervisor" ? null : enrollment.trim()
         })
       });
-      const data = await res.json();
+      const data: any = await res.json();
       if (!res.ok) throw new Error(data.error || "Account creation failed.");
 
       setName("");
