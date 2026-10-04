@@ -1,131 +1,101 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, RefreshCw, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
-import { useAppData } from "../../../context/DataProvider";
+
+type QuizHeader = {
+  id: string;
+  title: string;
+  opens_at: string;
+  closes_at: string;
+  ended_early_at?: string | null;
+};
+
+type StudentScoreCell = {
+  status: "attended" | "absent" | "open";
+  score: number | null;
+};
+
+type StudentRow = {
+  id: string;
+  full_name: string;
+  enrollment_number?: string | null;
+  total_marks: number;
+  attended_count: number;
+  eligible_count: number;
+  scores: Record<string, StudentScoreCell>;
+};
+
+type GradebookMatrixResponse = {
+  quizzes: QuizHeader[];
+  students: StudentRow[];
+};
 
 export default function MarksPage() {
   const { session, profile, setError } = useAuth();
-  const { quizzes, people } = useAppData();
   const token = session?.access_token || "";
   const isTeacher = profile?.role === "supervisor";
 
-  const [allAttempts, setAllAttempts] = useState<any[]>([]);
-  const [gradebookLoading, setGradebookLoading] = useState(false);
   const [gradebookSearch, setGradebookSearch] = useState("");
   const [gradebookSort, setGradebookSort] = useState<"total_desc" | "attended_desc" | "name_asc">("total_desc");
-  const [clock, setClock] = useState(() => Date.now());
 
-  useEffect(() => {
-    const id = window.setInterval(() => setClock(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
+  const {
+    data,
+    isLoading: gradebookLoading,
+    isFetching: gradebookFetching,
+    refetch: refetchGradebook,
+    error: gradebookError
+  } = useQuery<GradebookMatrixResponse>({
+    queryKey: ["gradebook_matrix"],
+    queryFn: () => request("/rest/v1/rpc/get_gradebook_matrix", token, "POST", {}),
+    enabled: Boolean(token && isTeacher)
+  });
 
-  const loadGradebook = useCallback(async () => {
-    if (!token || !isTeacher) return;
-    setGradebookLoading(true);
-    try {
-      const data = await request(
-        "/rest/v1/quiz_attempts?select=quiz_id,student_id,score,status,submitted_at&order=submitted_at.desc",
-        token
-      );
-      setAllAttempts(data || []);
-    } catch (e: any) {
-      setError(e.message || "Failed to load class marks.");
-    } finally {
-      setGradebookLoading(false);
-    }
-  }, [token, isTeacher, setError]);
+  if (gradebookError) {
+    setError((gradebookError as any)?.message || "Failed to load class marks.");
+  }
 
-  useEffect(() => {
-    loadGradebook();
-  }, [loadGradebook]);
+  const quizzesList = data?.quizzes || [];
+  const rawStudents = data?.students || [];
 
-  const gradebookData = useMemo(() => {
-    if (!isTeacher) return { matrix: [], quizzesList: [] };
-
-    const relevantQuizzes = [...quizzes]
-      .filter(q => q.published)
-      .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
-
-    const eligibleStudents = people
-      .filter(p => ["student", "student_leader"].includes(p.role) && p.active)
-      .sort((a, b) => a.full_name.localeCompare(b.full_name));
-
-    const attemptLookup = new Map<string, any>();
-    allAttempts.forEach(att => {
-      attemptLookup.set(`${att.student_id}_${att.quiz_id}`, att);
-    });
-
-    const rows = eligibleStudents.map(s => {
-      let totalMarks = 0;
-      let attendedCount = 0;
-      const quizScores: Record<string, { status: "attended" | "absent" | "open"; score: number | null }> = {};
-
-      relevantQuizzes.forEach(z => {
-        const att = attemptLookup.get(`${s.id}_${z.id}`);
-        const isClosed = Boolean(z.ended_early_at) || new Date(z.closes_at).getTime() <= clock;
-
-        if (att && (att.status === "submitted" || (att.score !== null && att.score !== undefined))) {
-          const sc = Number(att.score || 0);
-          totalMarks += sc;
-          attendedCount++;
-          quizScores[z.id] = { status: "attended", score: sc };
-        } else if (isClosed) {
-          quizScores[z.id] = { status: "absent", score: null };
-        } else {
-          quizScores[z.id] = { status: "open", score: null };
-        }
-      });
-
-      return {
-        student: s,
-        scores: quizScores,
-        totalMarks,
-        attendedCount,
-        eligibleCount: relevantQuizzes.length
-      };
-    });
-
+  const filteredStudents = useMemo(() => {
     const query = gradebookSearch.trim().toLowerCase();
-    const filtered = rows.filter(r => {
+    const list = rawStudents.filter(s => {
       if (!query) return true;
       return (
-        r.student.full_name.toLowerCase().includes(query) ||
-        (r.student.enrollment_number || "").toLowerCase().includes(query)
+        s.full_name.toLowerCase().includes(query) ||
+        (s.enrollment_number || "").toLowerCase().includes(query)
       );
     });
 
-    filtered.sort((a, b) => {
-      if (gradebookSort === "total_desc") return b.totalMarks - a.totalMarks;
-      if (gradebookSort === "attended_desc") return b.attendedCount - a.attendedCount;
-      return a.student.full_name.localeCompare(b.student.full_name);
+    return [...list].sort((a, b) => {
+      if (gradebookSort === "total_desc") return b.total_marks - a.total_marks;
+      if (gradebookSort === "attended_desc") return b.attended_count - a.attended_count;
+      return a.full_name.localeCompare(b.full_name);
     });
-
-    return { matrix: filtered, quizzesList: relevantQuizzes };
-  }, [isTeacher, quizzes, people, allAttempts, clock, gradebookSearch, gradebookSort]);
+  }, [rawStudents, gradebookSearch, gradebookSort]);
 
   const downloadGradebookCSV = () => {
-    const { matrix, quizzesList } = gradebookData;
-    if (!matrix.length) return;
+    if (!filteredStudents.length) return;
 
     const quizHeaders = quizzesList.map(q => `"${q.title.replace(/"/g, '""')}"`);
     const headers = ["Student Name", "Enrollment Number", ...quizHeaders, "Attended", "Total Marks"];
 
-    const rows = matrix.map(r => {
+    const rows = filteredStudents.map(s => {
       const cols = [
-        `"${r.student.full_name.replace(/"/g, '""')}"`,
-        `"${(r.student.enrollment_number || "").replace(/"/g, '""')}"`
+        `"${s.full_name.replace(/"/g, '""')}"`,
+        `"${(s.enrollment_number || "").replace(/"/g, '""')}"`
       ];
-      quizzesList.forEach(z => {
-        const cell = r.scores[z.id];
+      quizzesList.forEach(qz => {
+        const cell = s.scores[qz.id];
         if (cell?.status === "attended") cols.push(String(cell.score ?? 0));
         else if (cell?.status === "absent") cols.push('"Absent"');
         else cols.push('"Open"');
       });
-      cols.push(`"${r.attendedCount} / ${r.eligibleCount}"`);
-      cols.push(String(r.totalMarks));
+      cols.push(`"${s.attended_count} / ${s.eligible_count}"`);
+      cols.push(String(s.total_marks));
       return cols.join(",");
     });
 
@@ -138,6 +108,8 @@ export default function MarksPage() {
     link.click();
   };
 
+  if (!isTeacher) return null;
+
   return (
     <>
       <div className="section-title qb-section-title">
@@ -148,17 +120,17 @@ export default function MarksPage() {
           <button
             type="button"
             className="outline"
-            onClick={loadGradebook}
-            disabled={gradebookLoading}
+            onClick={() => refetchGradebook()}
+            disabled={gradebookFetching}
             title="Refresh marks data"
           >
-            <RefreshCw size={15} /> Refresh
+            <RefreshCw size={15} /> {gradebookFetching ? "Refreshing…" : "Refresh"}
           </button>
           <button
             type="button"
             className="primary"
             onClick={downloadGradebookCSV}
-            disabled={!gradebookData.matrix.length}
+            disabled={!filteredStudents.length}
           >
             <Download size={15} /> Export CSV
           </button>
@@ -196,7 +168,7 @@ export default function MarksPage() {
       <section className="card" style={{ padding: 0, overflow: "hidden" }}>
         {gradebookLoading ? (
           <div className="empty">Loading marks matrix…</div>
-        ) : !gradebookData.matrix.length ? (
+        ) : !filteredStudents.length ? (
           <div className="empty">No student records match the search filter.</div>
         ) : (
           <div className="gb-table-wrap">
@@ -204,7 +176,7 @@ export default function MarksPage() {
               <thead>
                 <tr>
                   <th className="gb-sticky-col">Student</th>
-                  {gradebookData.quizzesList.map(qz => (
+                  {quizzesList.map(qz => (
                     <th key={qz.id} title={qz.title}>
                       <span className="gb-quiz-title">{qz.title}</span>
                       <small className="gb-quiz-date">
@@ -217,15 +189,15 @@ export default function MarksPage() {
                 </tr>
               </thead>
               <tbody>
-                {gradebookData.matrix.map(row => (
-                  <tr key={row.student.id}>
+                {filteredStudents.map(row => (
+                  <tr key={row.id}>
                     <td className="gb-sticky-col">
-                      <strong>{row.student.full_name}</strong>
-                      {row.student.enrollment_number && (
-                        <small>Roll: {row.student.enrollment_number}</small>
+                      <strong>{row.full_name}</strong>
+                      {row.enrollment_number && (
+                        <small>Roll: {row.enrollment_number}</small>
                       )}
                     </td>
-                    {gradebookData.quizzesList.map(qz => {
+                    {quizzesList.map(qz => {
                       const item = row.scores[qz.id];
                       return (
                         <td key={qz.id} style={{ textAlign: "center" }}>
@@ -241,11 +213,11 @@ export default function MarksPage() {
                     })}
                     <td style={{ textAlign: "center" }}>
                       <span className="gb-attended-badge">
-                        {row.attendedCount} / {row.eligibleCount}
+                        {row.attended_count} / {row.eligible_count}
                       </span>
                     </td>
                     <td style={{ textAlign: "right", paddingRight: "20px" }}>
-                      <strong className="gb-total-score">{row.totalMarks} pts</strong>
+                      <strong className="gb-total-score">{row.total_marks} pts</strong>
                     </td>
                   </tr>
                 ))}
