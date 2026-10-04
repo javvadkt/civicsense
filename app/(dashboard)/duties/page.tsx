@@ -109,14 +109,16 @@ function DutiesContent() {
     [router]
   );
 
-  const invalidateDuties = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["duties_window"] });
-    queryClient.invalidateQueries({ queryKey: ["duty_progress"] });
-    queryClient.invalidateQueries({ queryKey: ["duty_availability"] });
-    queryClient.invalidateQueries({ queryKey: ["overview_stats"] });
-    queryClient.invalidateQueries({ queryKey: ["my_duties_overview"] });
-    reload();
-  }, [queryClient, reload]);
+const invalidateDuties = useCallback(async () => {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["duties_window"] }),
+    queryClient.invalidateQueries({ queryKey: ["duty_progress"] }),
+    queryClient.invalidateQueries({ queryKey: ["duty_availability"] }),
+    queryClient.invalidateQueries({ queryKey: ["overview_stats"] }),
+    queryClient.invalidateQueries({ queryKey: ["my_duties_overview"] })
+  ]);
+  reload();
+}, [queryClient, reload]);
 
   async function handleDutySave(p: { date: string; studentId: string; target: number; reason: string }) {
     setError("");
