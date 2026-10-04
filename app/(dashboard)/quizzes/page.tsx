@@ -16,6 +16,8 @@ import { useAuth, request } from "../../../context/AuthContext";
 import { useAppData, Quiz } from "../../../context/DataProvider";
 import QuizBuilder, { QuizPayload } from "../../QuizBuilder";
 import QuizAttendeesModal from "../../../components/QuizAttendeesModal";
+import StudentResultModal, { QuizResultData } from "../../../components/StudentResultModal";
+import EndQuizEarlyModal from "../../../components/EndQuizEarlyModal";
 
 function QuizzesListContent() {
   const { session, profile, flash, setError } = useAuth();
@@ -32,6 +34,8 @@ function QuizzesListContent() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<any | null>(null);
   const [attendeesQuiz, setAttendeesQuiz] = useState<Quiz | null>(null);
+  const [selectedResult, setSelectedResult] = useState<QuizResultData | null>(null);
+  const [endQuizTarget, setEndQuizTarget] = useState<Quiz | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 30_000);
@@ -166,6 +170,15 @@ function QuizzesListContent() {
     flash("Quiz updated successfully.");
     setEditingQuiz(null);
     setBuilderOpen(false);
+  }
+
+  async function handleShowResult(z: Quiz) {
+    try {
+      const res = await request("/rest/v1/rpc/get_my_quiz_result", token, "POST", { p_quiz_id: z.id });
+      setSelectedResult(res);
+    } catch (e: any) {
+      setError(e.message || "Failed to load quiz results");
+    }
   }
 
   async function handleDeleteQuiz(z: Quiz) {
@@ -377,8 +390,8 @@ function QuizzesListContent() {
                     (isSubmitted ? (
                       z.result_visibility === "after_release" && !z.results_published ? (
                         <span className="tag pending">Results pending</span>
-                      ) : isLive ? (
-                        <button className="outline" onClick={() => flash("Student review opens in Step 2.4b.")}>
+                    ) : isLive ? (
+                        <button className="outline" onClick={() => handleShowResult(z)}>
                           Review answers
                         </button>
                       ) : null
@@ -449,13 +462,13 @@ function QuizzesListContent() {
                             </button>
                           )}
 
-                          {canReviewAnswers && (
+                         {canReviewAnswers && (
                             <button
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
                               onClick={() => {
                                 setMenuQuizId(null);
-                                flash("Answer review opens in Step 2.4b.");
+                                handleShowResult(z);
                               }}
                             >
                               <Eye size={15} /> Review answers
@@ -517,7 +530,7 @@ function QuizzesListContent() {
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", color: "#ef4444" }}
                               onClick={() => {
                                 setMenuQuizId(null);
-                                flash("End early confirm dialog opens in Step 2.4b.");
+                                setEndQuizTarget(z);
                               }}
                             >
                               End quiz early
@@ -579,6 +592,22 @@ function QuizzesListContent() {
         token={token}
         flash={flash}
         setError={setError}
+      />
+
+      <StudentResultModal
+        result={selectedResult}
+        isOpen={Boolean(selectedResult)}
+        onClose={() => setSelectedResult(null)}
+      />
+
+      <EndQuizEarlyModal
+        quiz={endQuizTarget}
+        isOpen={Boolean(endQuizTarget)}
+        onClose={() => setEndQuizTarget(null)}
+        token={token}
+        flash={flash}
+        setError={setError}
+        onEnded={reload}
       />
     </>
   );
