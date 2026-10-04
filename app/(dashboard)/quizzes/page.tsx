@@ -18,6 +18,7 @@ import QuizBuilder, { QuizPayload } from "../../QuizBuilder";
 import QuizAttendeesModal from "../../../components/QuizAttendeesModal";
 import StudentResultModal, { QuizResultData } from "../../../components/StudentResultModal";
 import EndQuizEarlyModal from "../../../components/EndQuizEarlyModal";
+import QuestionItemAnalysisModal from "../../../components/QuestionItemAnalysisModal";
 
 function QuizzesListContent() {
   const { session, profile, flash, setError } = useAuth();
@@ -36,6 +37,7 @@ function QuizzesListContent() {
   const [attendeesQuiz, setAttendeesQuiz] = useState<Quiz | null>(null);
   const [selectedResult, setSelectedResult] = useState<QuizResultData | null>(null);
   const [endQuizTarget, setEndQuizTarget] = useState<Quiz | null>(null);
+  const [analysisQuiz, setAnalysisQuiz] = useState<Quiz | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 30_000);
@@ -481,7 +483,7 @@ function QuizzesListContent() {
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
                               onClick={() => {
                                 setMenuQuizId(null);
-                                flash("Question analysis opens in Step 2.4b.");
+                                setAnalysisQuiz(z);
                               }}
                             >
                               <Eye size={15} /> View questions
@@ -600,7 +602,7 @@ function QuizzesListContent() {
         onClose={() => setSelectedResult(null)}
       />
 
-      <EndQuizEarlyModal
+   <EndQuizEarlyModal
         quiz={endQuizTarget}
         isOpen={Boolean(endQuizTarget)}
         onClose={() => setEndQuizTarget(null)}
@@ -608,6 +610,14 @@ function QuizzesListContent() {
         flash={flash}
         setError={setError}
         onEnded={reload}
+      />
+
+      <QuestionItemAnalysisModal
+        quiz={analysisQuiz}
+        isOpen={Boolean(analysisQuiz)}
+        onClose={() => setAnalysisQuiz(null)}
+        token={token}
+        setError={setError}
       />
     </>
   );
