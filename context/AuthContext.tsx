@@ -2,8 +2,8 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-export const SUPABASE_BASE = "https://tklcbcbzmjmyvnyueeoa.supabase.co";
-export const SUPABASE_ANON_KEY = "sb_publishable_2_VdeCQxPERDAeTFSdVWBw_z-0Cto4T";
+export const SUPABASE_BASE = "https://dclxjishlusibfiedroo.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
 
 export type Session = {
   access_token: string;
