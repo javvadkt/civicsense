@@ -5,7 +5,14 @@ import { MoreVertical, Plus } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { useAppData } from "../../../context/DataProvider";
 import AddMemberModal from "../../../components/AddMemberModal";
+import {
+  ChangeRoleModal,
+  DeactivateModal,
+  ApproveModal
+} from "../../../components/MemberActionModals";
 
+const getTodayIST = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 const roleLabels: Record<string, string> = {
   supervisor: "Teacher",
   student_leader: "Student leader",
@@ -14,13 +21,18 @@ const roleLabels: Record<string, string> = {
 
 export default function PeoplePage() {
   const { session, profile, flash, setError } = useAuth();
-  const { people, reload } = useAppData();
+  const { people, duties, reload } = useAppData();
   const token = session?.access_token || "";
   const isTeacher = profile?.role === "supervisor";
+  const today = getTodayIST();
 
   const [search, setSearch] = useState("");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [memberKebabId, setMemberKebabId] = useState<string | null>(null);
+
+  const [roleModalTarget, setRoleModalTarget] = useState<any | null>(null);
+  const [deactivateModalTarget, setDeactivateModalTarget] = useState<any | null>(null);
+  const [approveModalTarget, setApproveModalTarget] = useState<any | null>(null);
 
   useEffect(() => {
     if (!memberKebabId) return;
@@ -98,7 +110,7 @@ export default function PeoplePage() {
                   <button
                     type="button"
                     className="primary"
-                    onClick={() => flash("Approval dialog opens in Step 2.8b.")}
+                    onClick={() => setApproveModalTarget(p)}
                   >
                     Approve
                   </button>
@@ -120,7 +132,7 @@ export default function PeoplePage() {
                           className="plain"
                           onClick={() => {
                             setMemberKebabId(null);
-                            flash("Change role dialog opens in Step 2.8b.");
+                            setRoleModalTarget(p);
                           }}
                         >
                           Change role
@@ -130,7 +142,7 @@ export default function PeoplePage() {
                           className="plain"
                           onClick={() => {
                             setMemberKebabId(null);
-                            flash("Activation/Deactivation dialog opens in Step 2.8b.");
+                            setDeactivateModalTarget(p);
                           }}
                         >
                           {p.active ? "Deactivate" : "Activate"}
@@ -154,6 +166,35 @@ export default function PeoplePage() {
         flash={flash}
         setError={setError}
         onCreated={reload}
+      />
+
+      <ChangeRoleModal
+        target={roleModalTarget}
+        onClose={() => setRoleModalTarget(null)}
+        token={token}
+        flash={flash}
+        setError={setError}
+        onUpdated={reload}
+      />
+
+      <DeactivateModal
+        target={deactivateModalTarget}
+        onClose={() => setDeactivateModalTarget(null)}
+        token={token}
+        duties={duties}
+        today={today}
+        flash={flash}
+        setError={setError}
+        onUpdated={reload}
+      />
+
+      <ApproveModal
+        target={approveModalTarget}
+        onClose={() => setApproveModalTarget(null)}
+        token={token}
+        flash={flash}
+        setError={setError}
+        onUpdated={reload}
       />
     </>
   );
