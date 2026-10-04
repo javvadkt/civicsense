@@ -19,6 +19,7 @@ import { useAuth, request } from "../../../context/AuthContext";
 import { useAppData, Question } from "../../../context/DataProvider";
 import QuestionFilterDrawer from "../../../components/QuestionFilterDrawer";
 import QuestionEditorModal from "../../../components/QuestionEditorModal";
+import MockQuizModal, { MockQuizSession } from "../../../components/MockQuizModal";
 
 const topics = [
   "Polity",
@@ -82,6 +83,8 @@ export default function QuestionsPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [questionToEdit, setQuestionToEdit] = useState<Question | null>(null);
+  const [mockModalOpen, setMockModalOpen] = useState(false);
+  const [activeMockSession, setActiveMockSession] = useState<MockQuizSession | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setBankDebouncedSearch(bankSearchInput.trim()), 350);
@@ -202,7 +205,7 @@ export default function QuestionsPage() {
         <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
 <div className="qb-header-actions">
           {!isTeacher && (
-            <button className="outline" onClick={() => flash("Practice mock quiz runner opens in Step 2.2c.")}>
+            <button className="outline" onClick={() => setMockModalOpen(true)}>
               <Play size={15} /> Practice
             </button>
           )}
@@ -575,7 +578,7 @@ export default function QuestionsPage() {
         )}
       </section>
 
-      <QuestionEditorModal
+    <QuestionEditorModal
         isOpen={editorOpen}
         onClose={() => {
           setEditorOpen(false);
@@ -586,6 +589,19 @@ export default function QuestionsPage() {
         isTeacher={isTeacher}
         token={token}
         flash={flash}
+        setError={setError}
+      />
+
+      <MockQuizModal
+        isOpen={mockModalOpen}
+        onClose={() => setMockModalOpen(false)}
+        token={token}
+        topics={topics}
+        approvedFallback={bankQuestions}
+        onStart={session => {
+          setActiveMockSession(session);
+          flash(`Generated practice test with ${session.questions.length} questions.`);
+        }}
         setError={setError}
       />
 
