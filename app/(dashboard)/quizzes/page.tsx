@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
@@ -9,11 +9,13 @@ import {
   MoreVertical,
   Play,
   Plus,
+  RefreshCw,
   Timer,
   Users
 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
-import { useAppData, Quiz } from "../../../context/DataProvider";
+import type { Quiz, Question } from "../../../context/DataProvider";
 import QuizBuilder, { QuizPayload } from "../../QuizBuilder";
 import QuizAttendeesModal from "../../../components/QuizAttendeesModal";
 import StudentResultModal, { QuizResultData } from "../../../components/StudentResultModal";
@@ -22,9 +24,9 @@ import QuestionItemAnalysisModal from "../../../components/QuestionItemAnalysisM
 
 function QuizzesListContent() {
   const { session, profile, flash, setError } = useAuth();
-  const { quizzes, attempts, reload, change } = useAppData();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const token = session?.access_token || "";
   const filterParam = searchParams.get("filter") || "all";
@@ -56,21 +58,70 @@ function QuizzesListContent() {
   const canManageAcademics = isTeacher;
   const canTakeQuizzes = ["student", "student_leader"].includes(profile?.role || "");
 
-  const approvedQuestions = useMemo(
-    () => questions.filter(q => q.status === "approved"),
-    [questions]
-  );
+  // 1. Quizzes list query
+  const {
+    data: quizzes = [],
+    isLoading: quizzesLoading,
+    isFetching: quizzesFetching,
+    refetch: refetchQuizzes
+  } = useQuery<Quiz[]>({
+    queryKey: ["quizzes_list"],
+    queryFn: () =>
+      request(
+        "/rest/v1/quizzes?select=id,title,kind,opens_at,closes_at,duration_minutes,result_visibility,results_published,published,ended_early_at,is_hidden&order=opens_at.desc",
+        token
+      ).catch(() => []),
+    enabled: Boolean(token && profile?.active)
+  });
+
+  // 2. Personal quiz attempts query (students & leaders)
+  const { data: attempts = [] } = useQuery<any[]>({
+    queryKey: ["my_quiz_attempts", profile?.id],
+    queryFn: () =>
+      request(
+        `/rest/v1/quiz_attempts?student_id=eq.${profile?.id}&select=id,quiz_id,status,score,submitted_at`,
+        token
+      ).catch(() => []),
+    enabled: Boolean(token && profile?.active && canTakeQuizzes)
+  });
+
+  // 3. Approved questions query for QuizBuilder
+  const { data: approvedQuestions = [] } = useQuery<Question[]>({
+    queryKey: ["approved_questions_for_builder"],
+    queryFn: () =>
+      request(
+        "/rest/v1/questions?status=eq.approved&select=id,stem,options,correct_index,explanation,source_url,topic,is_special,author_id,created_at&order=created_at.desc",
+        token
+      ).catch(() => []),
+    enabled: Boolean(token && profile?.active && canManageAcademics)
+  });
+
+  // 4. People directory query for enrollment labels in builder
+  const { data: people = [] } = useQuery<any[]>({
+    queryKey: ["people_directory"],
+    queryFn: () =>
+      request("/rest/v1/profiles?select=id,full_name,role,active,enrollment_number&order=full_name.asc", token).catch(() => []),
+    enabled: Boolean(token && profile?.active && canManageAcademics)
+  });
 
   const memberName = (id: string, name: string) => {
     const enroll = people.find(p => p.id === id)?.enrollment_number;
     return enroll ? `${name} · ${enroll}` : name;
   };
 
-  const myAttempts = useMemo(() => new Map(attempts.map(a => [a.quiz_id, a])), [attempts]);
+  const myAttempts = useMemo(() => new Map(attempts.map((a: any) => [a.quiz_id, a])), [attempts]);
 
   const setFilter = (tabId: string) => {
     router.push(tabId === "all" ? "/quizzes" : `/quizzes?filter=${tabId}`);
   };
+
+  const invalidateQuizzes = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["quizzes_list"] });
+    queryClient.invalidateQueries({ queryKey: ["my_quiz_attempts"] });
+    queryClient.invalidateQueries({ queryKey: ["overview_stats"] });
+    queryClient.invalidateQueries({ queryKey: ["my_quiz_summary"] });
+    queryClient.invalidateQueries({ queryKey: ["question_bank"] });
+  }, [queryClient]);
 
   async function handleStartQuizNow(z: Quiz) {
     if (!confirm(`Start "${z.title}" right now? It will become live immediately for students.`)) return;
@@ -82,18 +133,22 @@ function QuizzesListContent() {
       const minCloses = now.getTime() + z.duration_minutes * 60_000;
       const closes_at = currentCloses < minCloses ? new Date(minCloses + 36e5).toISOString() : z.closes_at;
 
-      await change(`/rest/v1/quizzes?id=eq.${z.id}`, { opens_at, closes_at }, "PATCH");
+      await request(`/rest/v1/quizzes?id=eq.${z.id}`, token, "PATCH", { opens_at, closes_at });
       flash(`"${z.title}" is now Live!`);
-      await reload();
+      invalidateQuizzes();
     } catch (e: any) {
       setError(e.message || "Failed to start quiz now.");
     }
   }
 
   async function handlePublishResults(z: Quiz) {
-    if (await change("/rest/v1/rpc/publish_quiz_results", { p_quiz_id: z.id })) {
+    setError("");
+    try {
+      await request("/rest/v1/rpc/publish_quiz_results", token, "POST", { p_quiz_id: z.id });
       flash("Results published to students.");
-      await reload();
+      invalidateQuizzes();
+    } catch (e: any) {
+      setError(e.message || "Failed to publish results.");
     }
   }
 
@@ -102,7 +157,7 @@ function QuizzesListContent() {
     try {
       const res = await request("/rest/v1/rpc/recalculate_quiz_scores", token, "POST", { p_quiz_id: z.id });
       flash(`Scores recalculated for ${res?.updated_submissions || 0} attempts.`);
-      await reload();
+      invalidateQuizzes();
     } catch (e: any) {
       setError(e.message || "Failed to recalculate scores.");
     }
@@ -110,9 +165,37 @@ function QuizzesListContent() {
 
   async function handleToggleHideQuiz(z: Quiz) {
     const nextState = !z.is_hidden;
-    if (await change(`/rest/v1/quizzes?id=eq.${z.id}`, { is_hidden: nextState }, "PATCH")) {
+    setError("");
+    try {
+      await request(`/rest/v1/quizzes?id=eq.${z.id}`, token, "PATCH", { is_hidden: nextState });
       flash(nextState ? `"${z.title}" is now hidden from students.` : `"${z.title}" is now visible.`);
-      await reload();
+      invalidateQuizzes();
+    } catch (e: any) {
+      setError(e.message || "Failed to update visibility.");
+    }
+  }
+
+  async function handleDeleteQuiz(z: Quiz) {
+    if (!confirm(`Are you sure you want to delete "${z.title}"? This cannot be undone.`)) return;
+    setError("");
+    try {
+      let deleted = false;
+      try {
+        await request("/rest/v1/rpc/delete_quiz_cascade", token, "POST", { p_quiz_id: z.id });
+        deleted = true;
+      } catch {
+        await request(`/rest/v1/quiz_attempts?quiz_id=eq.${z.id}`, token, "DELETE");
+        await request(`/rest/v1/quiz_attempt_starts?quiz_id=eq.${z.id}`, token, "DELETE");
+        await request(`/rest/v1/quiz_questions?quiz_id=eq.${z.id}`, token, "DELETE");
+        await request(`/rest/v1/quizzes?id=eq.${z.id}`, token, "DELETE");
+        deleted = true;
+      }
+      if (deleted) {
+        flash(`Deleted "${z.title}".`);
+        invalidateQuizzes();
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to delete quiz.");
     }
   }
 
@@ -126,7 +209,7 @@ function QuizzesListContent() {
       p_duration_minutes: p.duration,
       p_result_visibility: p.visibility
     });
-    await reload();
+    invalidateQuizzes();
     flash("Quiz created and published.");
   }
 
@@ -168,7 +251,7 @@ function QuizzesListContent() {
       const rows = p.ids.map((qId, idx) => ({ quiz_id: id, question_id: qId, position: idx + 1 }));
       await request("/rest/v1/quiz_questions", token, "POST", rows, "return=minimal");
     }
-    await reload();
+    invalidateQuizzes();
     flash("Quiz updated successfully.");
     setEditingQuiz(null);
     setBuilderOpen(false);
@@ -183,33 +266,9 @@ function QuizzesListContent() {
     }
   }
 
-  async function handleDeleteQuiz(z: Quiz) {
-    if (!confirm(`Are you sure you want to delete "${z.title}"? This cannot be undone.`)) return;
-    setError("");
-    try {
-      let deleted = false;
-      try {
-        await request("/rest/v1/rpc/delete_quiz_cascade", token, "POST", { p_quiz_id: z.id });
-        deleted = true;
-      } catch {
-        await request(`/rest/v1/quiz_attempts?quiz_id=eq.${z.id}`, token, "DELETE");
-        await request(`/rest/v1/quiz_attempt_starts?quiz_id=eq.${z.id}`, token, "DELETE");
-        await request(`/rest/v1/quiz_questions?quiz_id=eq.${z.id}`, token, "DELETE");
-        await request(`/rest/v1/quizzes?id=eq.${z.id}`, token, "DELETE");
-        deleted = true;
-      }
-      if (deleted) {
-        flash(`Deleted "${z.title}".`);
-        await reload();
-      }
-    } catch (e: any) {
-      setError(e.message || "Failed to delete quiz.");
-    }
-  }
-
   return (
     <>
-     {canManageAcademics && (
+      {canManageAcademics && (
         <div className="section-title">
           <p>Create timed quizzes from approved questions.</p>
           <button
@@ -239,38 +298,45 @@ function QuizzesListContent() {
       )}
 
       {/* Filter Tabs */}
-      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
-        {[
-          { id: "all", label: "All" },
-          { id: "live", label: "Live" },
-          { id: "upcoming", label: "Upcoming" },
-          { id: "closed", label: "Closed" }
-        ].map(tab => {
-          const count = quizzes.filter(q => {
-            if (q.is_hidden && !isTeacher) return false;
-            const o = new Date(q.opens_at).getTime();
-            const e = new Date(q.closes_at).getTime();
-            const isEnd = q.ended_early_at || clock > e;
-            const isLive = clock >= o && clock <= e && !q.ended_early_at;
-            const isUp = clock < o;
-            if (tab.id === "live") return isLive;
-            if (tab.id === "upcoming") return isUp;
-            if (tab.id === "closed") return isEnd;
-            return true;
-          }).length;
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {[
+            { id: "all", label: "All" },
+            { id: "live", label: "Live" },
+            { id: "upcoming", label: "Upcoming" },
+            { id: "closed", label: "Closed" }
+          ].map(tab => {
+            const count = quizzes.filter(q => {
+              if (q.is_hidden && !isTeacher) return false;
+              const o = new Date(q.opens_at).getTime();
+              const e = new Date(q.closes_at).getTime();
+              const isEnd = q.ended_early_at || clock > e;
+              const isLive = clock >= o && clock <= e && !q.ended_early_at;
+              const isUp = clock < o;
+              if (tab.id === "live") return isLive;
+              if (tab.id === "upcoming") return isUp;
+              if (tab.id === "closed") return isEnd;
+              return true;
+            }).length;
 
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              className={quizFilter === tab.id ? "primary" : "outline"}
-              style={{ padding: "6px 14px", borderRadius: "20px", fontSize: "13px" }}
-              onClick={() => setFilter(tab.id)}
-            >
-              {tab.label} <b style={{ marginLeft: "4px", opacity: 0.8 }}>{count}</b>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={quizFilter === tab.id ? "primary" : "outline"}
+                style={{ padding: "6px 14px", borderRadius: "20px", fontSize: "13px" }}
+                onClick={() => setFilter(tab.id)}
+              >
+                {tab.label} <b style={{ marginLeft: "4px", opacity: 0.8 }}>{count}</b>
+              </button>
+            );
+          })}
+        </div>
+        {quizzesFetching && !quizzesLoading && (
+          <span className="muted" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <RefreshCw size={13} /> Updating quizzes…
+          </span>
+        )}
       </div>
 
       {/* Quiz Cards */}
@@ -392,7 +458,7 @@ function QuizzesListContent() {
                     (isSubmitted ? (
                       z.result_visibility === "after_release" && !z.results_published ? (
                         <span className="tag pending">Results pending</span>
-                    ) : isLive ? (
+                      ) : isLive ? (
                         <button className="outline" onClick={() => handleShowResult(z)}>
                           Review answers
                         </button>
@@ -464,7 +530,7 @@ function QuizzesListContent() {
                             </button>
                           )}
 
-                         {canReviewAnswers && (
+                          {canReviewAnswers && (
                             <button
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
@@ -503,7 +569,7 @@ function QuizzesListContent() {
                             </button>
                           )}
 
-                         {canEditQuiz && (
+                          {canEditQuiz && (
                             <button
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
@@ -584,7 +650,7 @@ function QuizzesListContent() {
             );
           })}
 
-       {!quizzes.length && <div className="empty">No quizzes have been published.</div>}
+        {!quizzes.length && !quizzesLoading && <div className="empty">No quizzes have been published.</div>}
       </div>
 
       <QuizAttendeesModal
@@ -602,14 +668,16 @@ function QuizzesListContent() {
         onClose={() => setSelectedResult(null)}
       />
 
-   <EndQuizEarlyModal
+      <EndQuizEarlyModal
         quiz={endQuizTarget}
         isOpen={Boolean(endQuizTarget)}
         onClose={() => setEndQuizTarget(null)}
         token={token}
         flash={flash}
         setError={setError}
-        onEnded={reload}
+        onEnded={async () => {
+          invalidateQuizzes();
+        }}
       />
 
       <QuestionItemAnalysisModal
