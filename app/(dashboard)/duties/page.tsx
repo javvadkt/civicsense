@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
-import { useAppData } from "../../../context/DataProvider";
+import { useAppData, Duty } from "../../../context/DataProvider";
 import DutyCalendar from "../../DutyCalendar";
 import QuestionEditorModal from "../../../components/QuestionEditorModal";
 
@@ -23,17 +24,16 @@ const dutyStatuses: Record<string, string> = {
 
 function DutiesContent() {
   const { session, profile, flash, setError } = useAuth();
-  const { duties, people, questions, reload } = useAppData();
+  const { reload } = useAppData();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const token = session?.access_token || "";
   const today = getTodayIST();
   const dateParam = searchParams.get("date");
   const dutyDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
-  const [dutyProgress, setDutyProgress] = useState<any[]>([]);
-  const [dutyAvailability, setDutyAvailability] = useState<any[]>([]);
   const [dutyBusy, setDutyBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -42,6 +42,51 @@ function DutiesContent() {
   const review = isTeacher;
   const manage = canManageDuties;
 
+  // Compute 3-month window bounds around active duty date [month - 1, month + 1]
+  const { startDate, endDate } = useMemo(() => {
+    const parts = dutyDate.split("-").map(Number);
+    const y = parts[0] || new Date().getFullYear();
+    const m = parts[1] || new Date().getMonth() + 1;
+    const start = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10);
+    return { startDate: start, endDate: end };
+  }, [dutyDate]);
+
+  // 1. Windowed duties query
+  const { data: duties = [] } = useQuery<Duty[]>({
+    queryKey: ["duties_window", startDate, endDate],
+    queryFn: () =>
+      request(
+        `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note&duty_date=gte.${startDate}&duty_date=lte.${endDate}&order=duty_date.asc`,
+        token
+      ).catch(() => []),
+    enabled: Boolean(token && profile?.active)
+  });
+
+  // 2. People directory query for names and enrollment numbers
+  const { data: people = [] } = useQuery<any[]>({
+    queryKey: ["people_directory"],
+    queryFn: () =>
+      request("/rest/v1/profiles?select=id,full_name,role,active,enrollment_number&order=full_name.asc", token).catch(() => []),
+    enabled: Boolean(token && profile?.active)
+  });
+
+  // 3. Duty progress query for selected date
+  const { data: dutyProgress = [] } = useQuery<any[]>({
+    queryKey: ["duty_progress", dutyDate],
+    queryFn: () =>
+      request("/rest/v1/rpc/get_duty_progress", token, "POST", { p_duty_date: dutyDate }).catch(() => []),
+    enabled: Boolean(token && profile?.active && dutyDate)
+  });
+
+  // 4. Duty availability query for managers
+  const { data: dutyAvailability = [] } = useQuery<any[]>({
+    queryKey: ["duty_availability", dutyDate],
+    queryFn: () =>
+      request("/rest/v1/rpc/get_duty_availability", token, "POST", { p_duty_date: dutyDate }).catch(() => []),
+    enabled: Boolean(token && profile?.active && dutyDate && manage)
+  });
+
   const enrollmentFor = useCallback(
     (id: string) => people.find(p => p.id === id)?.enrollment_number,
     [people]
@@ -49,10 +94,10 @@ function DutiesContent() {
 
   const memberName = useCallback(
     (id: string, name: string) => {
-      const enrollment = enrollmentFor(id) || questions.find(q => q.author_id === id)?.author?.enrollment_number;
+      const enrollment = enrollmentFor(id);
       return enrollment ? `${name} · ${enrollment}` : name;
     },
-    [enrollmentFor, questions]
+    [enrollmentFor]
   );
 
   const selectedDuty = useMemo(() => duties.find(d => d.duty_date === dutyDate), [duties, dutyDate]);
@@ -64,18 +109,14 @@ function DutiesContent() {
     [router]
   );
 
-  useEffect(() => {
-    if (!token || !profile?.active || !dutyDate) return;
-    Promise.all([
-      request("/rest/v1/rpc/get_duty_progress", token, "POST", { p_duty_date: dutyDate }),
-      manage ? request("/rest/v1/rpc/get_duty_availability", token, "POST", { p_duty_date: dutyDate }) : Promise.resolve([])
-    ])
-      .then(([progress, avail]) => {
-        setDutyProgress(progress || []);
-        setDutyAvailability(avail || []);
-      })
-      .catch((e: any) => setError(e.message || "Failed to load duty data"));
-  }, [token, profile?.active, manage, dutyDate, setError]);
+  const invalidateDuties = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["duties_window"] });
+    queryClient.invalidateQueries({ queryKey: ["duty_progress"] });
+    queryClient.invalidateQueries({ queryKey: ["duty_availability"] });
+    queryClient.invalidateQueries({ queryKey: ["overview_stats"] });
+    queryClient.invalidateQueries({ queryKey: ["my_duties_overview"] });
+    reload();
+  }, [queryClient, reload]);
 
   async function handleDutySave(p: { date: string; studentId: string; target: number; reason: string }) {
     setError("");
@@ -103,7 +144,7 @@ function DutiesContent() {
           p_target_count: p.target
         });
       }
-      await reload();
+      invalidateDuties();
       flash(`${r?.[0]?.full_name || "Duty"} saved for ${selectedDuty ? p.date : dutyDate}.`);
       return true;
     } catch (e: any) {
@@ -123,7 +164,7 @@ function DutiesContent() {
         p_duty_id: selectedDuty.id,
         p_reason: reason || null
       });
-      await reload();
+      invalidateDuties();
       flash(`Duty for ${dutyDate} deleted.`);
       return true;
     } catch (e: any) {
@@ -143,7 +184,7 @@ function DutiesContent() {
         p_status: status,
         p_reason: reason || null
       });
-      await reload();
+      invalidateDuties();
       flash(`Duty status updated: ${dutyStatuses[status] || status}.`);
     } catch (e: any) {
       setError(e.message || "Failed to update status");
@@ -177,14 +218,17 @@ function DutiesContent() {
         api={(path, method, body, prefer) => request(path, token, method, body, prefer)}
         flash={flash}
         fail={setError}
-        refresh={reload}
+        refresh={invalidateDuties}
       />
 
       <QuestionEditorModal
         isOpen={editorOpen}
         onClose={() => setEditorOpen(false)}
         questionToEdit={null}
-        onSaved={reload}
+        onSaved={() => {
+          invalidateDuties();
+          queryClient.invalidateQueries({ queryKey: ["question_bank"] });
+        }}
         isTeacher={isTeacher}
         token={token}
         flash={flash}
