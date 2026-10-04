@@ -3068,13 +3068,20 @@ const eligibleStudents = people
                       <Source value={q.source_url} />
                     </div>
 
-                    {/* Students keep their plain edit button */}
+                    {/* Students can edit or delete their pending questions */}
                     {canStudentEdit && (
                       <div className="actions" style={{ marginTop: "12px" }}>
                         <button className="outline" onClick={() => openQuestion(q)}>
                           Edit
                         </button>
+                        <button
+                          className="danger-outline"
+                          onClick={() => setDeleteQuestionTarget(q)}
+                        >
+                          Delete
+                        </button>
                       </div>
+                    )}
                     )}
                   </details>
                 );
@@ -5484,9 +5491,11 @@ const eligibleStudents = people
               </strong>
               <small style={{ color: "#64748b" }}>{deleteQuestionTarget.topic}</small>
             </div>
-            <div className="card" style={{ padding: "12px", background: "#fef2f2", border: "1px solid #fee2e2", margin: 0 }}>
+           <div className="card" style={{ padding: "12px", background: "#fef2f2", border: "1px solid #fee2e2", margin: 0 }}>
               <p style={{ margin: 0, fontSize: "13px", color: "#991b1b" }}>
-                This question will also be removed from any quiz that uses it.
+                {deleteQuestionTarget.status === "approved"
+                  ? "This question will also be removed from any quiz that uses it."
+                  : "This will permanently remove this question from your duty count."}
               </p>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
