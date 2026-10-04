@@ -3082,7 +3082,6 @@ const eligibleStudents = people
                         </button>
                       </div>
                     )}
-                    )}
                   </details>
                 );
               })}
