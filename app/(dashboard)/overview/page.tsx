@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
-import { useAuth } from "../../../context/AuthContext";
-import { useAppData } from "../../../context/DataProvider";
-
-const getTodayIST = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+import { CheckCircle2, RefreshCw } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth, request } from "../../../context/AuthContext";
+import type { Duty, QuizSummary } from "../../../context/DataProvider";
 
 const dutyStatuses: Record<string, string> = {
   assigned: "Assigned",
@@ -25,55 +23,49 @@ function Empty({ text }: { text: string }) {
 }
 
 export default function OverviewPage() {
-  const { profile } = useAuth();
-  const { questions, duties, myDuties, quizzes, people, attempts, quizSummary } = useAppData();
+  const { session, profile } = useAuth();
   const router = useRouter();
+  const token = session?.access_token || "";
 
-  const [clock, setClock] = useState(() => Date.now());
+  const isTeacher = profile?.role === "supervisor";
+  const isStudentParticipant = ["student", "student_leader"].includes(profile?.role || "");
 
-  useEffect(() => {
-    const id = window.setInterval(() => setClock(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
+  // 1. Server-side aggregated stats (all roles)
+  const {
+    data: overviewData,
+    isLoading: statsLoading,
+    isFetching: statsFetching,
+    refetch: refetchStats
+  } = useQuery({
+    queryKey: ["overview_stats", profile?.id],
+    queryFn: () => request("/rest/v1/rpc/get_overview_stats", token, "POST", {}),
+    enabled: Boolean(token && profile?.active)
+  });
 
-  if (!profile) return null;
+  // 2. Personal quiz scorecard (students & leaders only)
+  const { data: quizSummary } = useQuery<QuizSummary | null>({
+    queryKey: ["my_quiz_summary", profile?.id],
+    queryFn: () => request("/rest/v1/rpc/get_my_quiz_summary", token, "POST", {}).catch(() => null),
+    enabled: Boolean(token && profile?.active && isStudentParticipant)
+  });
 
-  const today = getTodayIST();
-  const isTeacher = profile.role === "supervisor";
-  const isStudentParticipant = ["student", "student_leader"].includes(profile.role);
-  const canTakeQuizzes = isStudentParticipant;
+  // 3. Targeted personal duties (students & leaders only, limited to 20)
+  const { data: myDutiesRaw = [] } = useQuery<Duty[]>({
+    queryKey: ["my_duties_overview", profile?.id],
+    queryFn: () =>
+      request(
+        `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note&student_id=eq.${profile?.id}&order=duty_date.desc&limit=20`,
+        token
+      ).catch(() => []),
+    enabled: Boolean(token && profile?.active && isStudentParticipant)
+  });
 
-  const enrollmentFor = (id: string) => people.find(p => p.id === id)?.enrollment_number;
-
-  const todayDuty = duties.find(d => d.duty_date === today);
-  const isViewerToday = todayDuty?.student_id === profile.id;
-  const todayPerson = todayDuty
-    ? todayDuty.student?.full_name || people.find(p => p.id === todayDuty.student_id)?.full_name || "Student"
-    : null;
-  const todayEnrollment = todayDuty
-    ? todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id)
-    : null;
-
-  const myAttempts = useMemo(() => new Set(attempts.map(a => a.quiz_id)), [attempts]);
-
-  const liveUnsubmitted = useMemo(() => {
-    return quizzes.filter(
-      q =>
-        q.published &&
-        new Date(q.opens_at).getTime() <= clock &&
-        new Date(q.closes_at).getTime() >= clock &&
-        !(q as any).ended_early_at &&
-        !myAttempts.has(q.id)
-    ).length;
-  }, [quizzes, clock, myAttempts]);
-
-  const pending = useMemo(
-    () => questions.filter(q => ["pending", "revision_requested"].includes(q.status)),
-    [questions]
-  );
+  const today = overviewData?.today_ist || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const todayDuty = overviewData?.today_duty;
+  const stats = overviewData?.stats;
 
   const sortedDuties = useMemo(() => {
-    return [...myDuties].sort((a, b) => {
+    return [...myDutiesRaw].sort((a, b) => {
       const aFuture = a.duty_date >= today;
       const bFuture = b.duty_date >= today;
       if (aFuture && bFuture) return a.duty_date.localeCompare(b.duty_date);
@@ -81,19 +73,28 @@ export default function OverviewPage() {
       if (bFuture) return 1;
       return b.duty_date.localeCompare(a.duty_date);
     });
-  }, [myDuties, today]);
+  }, [myDutiesRaw, today]);
+
+  if (!profile) return null;
 
   return (
     <>
-      <div className="intro">
-        <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
-        <p>
-          {profile.role === "supervisor"
-            ? "Review questions, manage members, schedule duties, and publish quizzes."
-            : profile.role === "student_leader"
-            ? "Do your question duties, and assist with managing the rotation: assign, swap and edit duties."
-            : "Confirm your assigned duty, submit your questions, and take class quizzes."}
-        </p>
+      <div className="intro" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px" }}>
+        <div>
+          <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
+          <p>
+            {isTeacher
+              ? "Review questions, manage members, schedule duties, and publish quizzes."
+              : profile.role === "student_leader"
+              ? "Do your question duties, and assist with managing the rotation: assign, swap and edit duties."
+              : "Confirm your assigned duty, submit your questions, and take class quizzes."}
+          </p>
+        </div>
+        {statsFetching && !statsLoading && (
+          <span className="muted" style={{ flexShrink: 0, marginTop: "6px" }}>
+            <RefreshCw size={13} /> Updating
+          </span>
+        )}
       </div>
 
       {/* Today's Duty Card (All Roles) */}
@@ -103,7 +104,7 @@ export default function OverviewPage() {
             <span className="eyebrow">
               TODAY'S DUTY · {new Date(`${today}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
             </span>
-            <h3>{todayDuty ? todayPerson : "No duty assigned today"}</h3>
+            <h3>{todayDuty ? todayDuty.student_name || "Student" : "No duty assigned today"}</h3>
           </div>
           {todayDuty && (
             <span className={`duty-status status-${todayDuty.duty_status || "assigned"}`}>
@@ -114,16 +115,16 @@ export default function OverviewPage() {
         {todayDuty ? (
           <div className="today-duty-body">
             <div className="today-duty-meta">
-              {todayEnrollment && (
+              {todayDuty.enrollment_number && (
                 <span>
-                  <strong>Roll:</strong> {todayEnrollment}
+                  <strong>Roll:</strong> {todayDuty.enrollment_number}
                 </span>
               )}
               <span>
                 <strong>Target:</strong> {todayDuty.target_count} questions
               </span>
             </div>
-            {isViewerToday && (
+            {todayDuty.is_viewer_today && (
               <div className="today-duty-banner">
                 <CheckCircle2 size={16} />
                 <span>You are on duty today</span>
@@ -137,75 +138,62 @@ export default function OverviewPage() {
 
       {/* 3 Metric Stat Cards */}
       <div className="stats">
-        {isTeacher ? (
-          (() => {
-            const pendingNew = questions.filter(q => q.status === "pending").length;
-            const revisionReq = questions.filter(q => q.status === "revision_requested").length;
-            const conducted = quizzes.filter(
-              q => q.published && (clock > new Date(q.closes_at).getTime() || Boolean((q as any).ended_early_at))
-            );
-            const waitingPublish = conducted.filter(
-              q => q.result_visibility === "after_release" && !q.results_published
-            ).length;
-            const scheduled = quizzes
-              .filter(q => q.published && clock < new Date(q.opens_at).getTime() && !(q as any).ended_early_at)
-              .sort((a, b) => new Date(a.opens_at).getTime() - new Date(b.opens_at).getTime());
-            const nextUp = scheduled[0];
-
-            return (
-              <>
-                <article
-                  style={{ cursor: "pointer" }}
-                  onClick={() => router.push("/review")}
-                  title="Click to open Review queue"
-                >
-                  <span>Questions to approve</span>
-                  <strong>{pending.length}</strong>
-                  <small>
-                    {pendingNew} new · {revisionReq} correction{revisionReq === 1 ? "" : "s"}
-                  </small>
-                </article>
-                <article>
-                  <span>Quizzes conducted</span>
-                  <strong>{conducted.length}</strong>
-                  <small>
-                    {waitingPublish > 0
-                      ? `${waitingPublish} result${waitingPublish === 1 ? "" : "s"} waiting to publish`
-                      : "All results released"}
-                  </small>
-                </article>
-                <article>
-                  <span>Quizzes scheduled</span>
-                  <strong>{scheduled.length}</strong>
-                  <small>
-                    {nextUp
-                      ? `Next: ${nextUp.title} · ${new Date(nextUp.opens_at).toLocaleDateString([], {
-                          month: "short",
-                          day: "numeric"
-                        })}`
-                      : "None scheduled"}
-                  </small>
-                </article>
-              </>
-            );
-          })()
+        {statsLoading || !stats ? (
+          <>
+            <article><span>Loading metrics…</span><strong>—</strong></article>
+            <article><span>Loading metrics…</span><strong>—</strong></article>
+            <article><span>Loading metrics…</span><strong>—</strong></article>
+          </>
+        ) : isTeacher ? (
+          <>
+            <article
+              style={{ cursor: "pointer" }}
+              onClick={() => router.push("/review")}
+              title="Click to open Review queue"
+            >
+              <span>Questions to approve</span>
+              <strong>{stats.pending_total ?? 0}</strong>
+              <small>
+                {stats.pending_new ?? 0} new · {stats.pending_revision ?? 0} correction{(stats.pending_revision ?? 0) === 1 ? "" : "s"}
+              </small>
+            </article>
+            <article>
+              <span>Quizzes conducted</span>
+              <strong>{stats.conducted_count ?? 0}</strong>
+              <small>
+                {(stats.waiting_publish_count ?? 0) > 0
+                  ? `${stats.waiting_publish_count} result${stats.waiting_publish_count === 1 ? "" : "s"} waiting to publish`
+                  : "All results released"}
+              </small>
+            </article>
+            <article>
+              <span>Quizzes scheduled</span>
+              <strong>{stats.scheduled_count ?? 0}</strong>
+              <small>
+                {stats.next_scheduled
+                  ? `Next: ${stats.next_scheduled.title} · ${new Date(stats.next_scheduled.opens_at).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric"
+                    })}`
+                  : "None scheduled"}
+              </small>
+            </article>
+          </>
         ) : (
           <>
             <article>
               <span>My contributions</span>
-              <strong>{questions.filter(q => q.author_id === profile.id).length}</strong>
+              <strong>{stats.my_contributions ?? 0}</strong>
               <small>All statuses</small>
             </article>
             <article>
               <span>Live quizzes</span>
-              <strong>{liveUnsubmitted}</strong>
+              <strong>{stats.live_unsubmitted ?? 0}</strong>
               <small>Open now, not yet taken</small>
             </article>
             <article>
               <span>My next duty</span>
-              <strong>
-                {duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}
-              </strong>
+              <strong>{stats.next_duty_date || "None"}</strong>
               <small>Five questions per day</small>
             </article>
           </>
@@ -213,7 +201,7 @@ export default function OverviewPage() {
       </div>
 
       {/* Quiz Scorecard (Student and Student Leader) */}
-      {canTakeQuizzes && (
+      {isStudentParticipant && (
         <section className="card quiz-scorecard">
           <div className="card-head-row">
             <div>
@@ -261,7 +249,7 @@ export default function OverviewPage() {
               <span className="eyebrow">SCHEDULE & HISTORY</span>
               <h3>My duties</h3>
             </div>
-            <span className="pill">{myDuties.length} total</span>
+            <span className="pill">{myDutiesRaw.length} total</span>
           </div>
           <div className="my-duties-list">
             {sortedDuties.map(d => {
