@@ -20,6 +20,7 @@ import { useAppData, Question } from "../../../context/DataProvider";
 import QuestionFilterDrawer from "../../../components/QuestionFilterDrawer";
 import QuestionEditorModal from "../../../components/QuestionEditorModal";
 import MockQuizModal, { MockQuizSession } from "../../../components/MockQuizModal";
+import MockQuizPortal from "../../../components/MockQuizPortal";
 
 const topics = [
   "Polity",
@@ -598,11 +599,19 @@ export default function QuestionsPage() {
         token={token}
         topics={topics}
         approvedFallback={bankQuestions}
-        onStart={session => {
+     onStart={session => {
           setActiveMockSession(session);
-          flash(`Generated practice test with ${session.questions.length} questions.`);
         }}
         setError={setError}
+      />
+
+      <MockQuizPortal
+        session={activeMockSession}
+        onClose={() => setActiveMockSession(null)}
+        onRestart={() => {
+          setActiveMockSession(null);
+          setMockModalOpen(true);
+        }}
       />
 
       {deleteQuestionTarget && (
