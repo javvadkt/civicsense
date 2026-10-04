@@ -2278,7 +2278,7 @@ const eligibleStudents = people
               <BookOpen />
             </span>
             <span>
-              <strong>CivicPrep</strong>
+              <strong>GpaDhiu</strong>
               <small>Current affairs hub</small>
             </span>
           </div>
