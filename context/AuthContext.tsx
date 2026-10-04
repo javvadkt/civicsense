@@ -179,7 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ email, password: pass, full_name: name, requested_role: role, enrollment_number: role === "student" ? enrollment : null })
       });
-      const data = await res.json();
+      const data: any = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not create your account.");
       setNotice("Account created. Wait for a teacher to activate your account.");
     } finally {
