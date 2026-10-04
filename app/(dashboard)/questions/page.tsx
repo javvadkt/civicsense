@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle,
@@ -15,24 +15,13 @@ import {
   Search,
   X
 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
 import { useAppData, Question } from "../../../context/DataProvider";
 import QuestionFilterDrawer from "../../../components/QuestionFilterDrawer";
-import QuestionEditorModal from "../../../components/QuestionEditorModal";
+import QuestionEditorModal, { TOPICS } from "../../../components/QuestionEditorModal";
 import MockQuizModal, { MockQuizSession } from "../../../components/MockQuizModal";
 import MockQuizPortal from "../../../components/MockQuizPortal";
-
-const topics = [
-  "Polity",
-  "Economy",
-  "Environment",
-  "International relations",
-  "Science & technology",
-  "Government schemes",
-  "History",
-  "Reports & indices",
-  "Other"
-];
 
 function Source({ value }: { value: string | null | undefined }) {
   if (!value) return null;
@@ -53,17 +42,12 @@ function Source({ value }: { value: string | null | undefined }) {
 
 export default function QuestionsPage() {
   const { session, profile, flash, setError } = useAuth();
-  const { change } = useAppData();
+  const { reload } = useAppData();
+  const queryClient = useQueryClient();
   const token = session?.access_token || "";
   const isTeacher = profile?.role === "supervisor";
 
-  const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
-  const [bankTotal, setBankTotal] = useState(0);
-  const [bankUploaders, setBankUploaders] = useState<{ id: string; full_name: string; enrollment_number?: string | null }[]>([]);
-  const [bankLoading, setBankLoading] = useState(false);
-  const [bankOffset, setBankOffset] = useState(0);
-  const [bankError, setBankError] = useState("");
-
+  // Filter States
   const [bankQuick, setBankQuick] = useState<"all" | "mine" | "approved" | "pending" | "revision_requested">("all");
   const [bankSearchInput, setBankSearchInput] = useState("");
   const [bankDebouncedSearch, setBankDebouncedSearch] = useState("");
@@ -77,8 +61,10 @@ export default function QuestionsPage() {
   const [bankHasSource, setBankHasSource] = useState<"all" | "yes" | "no">("all");
   const [bankQuizUsage, setBankQuizUsage] = useState<"all" | "used" | "unused">("all");
   const [bankSort, setBankSort] = useState<"newest" | "oldest" | "topic" | "uploader" | "status">("newest");
+  const [limit, setLimit] = useState(25);
   const [bankFilterPanelOpen, setBankFilterPanelOpen] = useState(false);
 
+  // Modals & Context States
   const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
   const [deleteQuestionTarget, setDeleteQuestionTarget] = useState<Question | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -87,27 +73,68 @@ export default function QuestionsPage() {
   const [mockModalOpen, setMockModalOpen] = useState(false);
   const [activeMockSession, setActiveMockSession] = useState<MockQuizSession | null>(null);
 
+  // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => setBankDebouncedSearch(bankSearchInput.trim()), 350);
     return () => clearTimeout(timer);
   }, [bankSearchInput]);
 
-  const loadQuestionBank = useCallback(async (offset = 0, append = false) => {
-    if (!token) return;
-    setBankLoading(true);
-    setBankError("");
-    try {
-      const activeStatus =
-        bankQuick === "approved" || bankQuick === "pending" || bankQuick === "revision_requested"
-          ? bankQuick
-          : bankStatus === "all" ? null : bankStatus;
-      const onlyMine = bankQuick === "mine" || bankOnlyMine;
+  // Reset limit to 25 when any filter condition changes
+  useEffect(() => {
+    setLimit(25);
+  }, [
+    bankDebouncedSearch, bankQuick, bankTopic, bankAuthorId,
+    bankOnlyMine, bankStatus, bankSpecial, bankDateFrom, bankDateTo,
+    bankHasSource, bankQuizUsage, bankSort
+  ]);
 
-      const res = await request("/rest/v1/rpc/get_question_bank", token, "POST", {
+  // Close kebab on outside click
+  useEffect(() => {
+    if (!bankMenuQId) return;
+    const close = () => setBankMenuQId(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [bankMenuQId]);
+
+  const activeStatus = useMemo(() => {
+    if (["approved", "pending", "revision_requested"].includes(bankQuick)) return bankQuick;
+    return bankStatus === "all" ? null : bankStatus;
+  }, [bankQuick, bankStatus]);
+
+  const effectiveOnlyMine = bankQuick === "mine" || bankOnlyMine;
+
+  // TanStack Query for Question Bank
+  const {
+    data: bankData,
+    isLoading: bankLoading,
+    isFetching: bankFetching,
+    error: bankQueryError,
+    refetch: refetchBank
+  } = useQuery({
+    queryKey: [
+      "question_bank",
+      {
+        search: bankDebouncedSearch,
+        quick: bankQuick,
+        topic: bankTopic,
+        authorId: bankAuthorId,
+        onlyMine: effectiveOnlyMine,
+        status: activeStatus,
+        special: bankSpecial,
+        dateFrom: bankDateFrom,
+        dateTo: bankDateTo,
+        hasSource: bankHasSource,
+        quizUsage: bankQuizUsage,
+        sort: bankSort,
+        limit
+      }
+    ],
+    queryFn: () =>
+      request("/rest/v1/rpc/get_question_bank", token, "POST", {
         p_search: bankDebouncedSearch || null,
         p_topic: bankTopic === "all" ? null : bankTopic,
         p_author_id: bankAuthorId === "all" ? null : bankAuthorId,
-        p_only_mine: onlyMine,
+        p_only_mine: effectiveOnlyMine,
         p_status: activeStatus,
         p_is_special: bankSpecial === "all" ? null : bankSpecial === "special",
         p_date_from: bankDateFrom || null,
@@ -115,44 +142,21 @@ export default function QuestionsPage() {
         p_has_source: bankHasSource === "all" ? null : bankHasSource === "yes",
         p_quiz_usage: bankQuizUsage === "all" ? null : bankQuizUsage,
         p_sort: bankSort,
-        p_limit: 25,
-        p_offset: offset
-      });
+        p_limit: limit,
+        p_offset: 0
+      }),
+    enabled: Boolean(token && profile?.active)
+  });
 
-      if (res) {
-        setBankTotal(res.total ?? 0);
-        if (res.uploaders) setBankUploaders(res.uploaders);
-        if (append) {
-          setBankQuestions(prev => [...prev, ...(res.questions || [])]);
-        } else {
-          setBankQuestions(res.questions || []);
-        }
-        setBankOffset(offset);
-      }
-    } catch (e: any) {
-      setBankError(e.message || "Failed to load question bank");
-      setBankQuestions([]);
-    } finally {
-      setBankLoading(false);
-    }
-  }, [
-    token, bankDebouncedSearch, bankQuick, bankTopic, bankAuthorId,
-    bankOnlyMine, bankStatus, bankSpecial, bankDateFrom, bankDateTo,
-    bankHasSource, bankQuizUsage, bankSort
-  ]);
+  const bankQuestions: Question[] = bankData?.questions || [];
+  const bankTotal: number = bankData?.total ?? 0;
+  const bankUploaders: { id: string; full_name: string; enrollment_number?: string | null }[] = bankData?.uploaders || [];
+  const bankError = (bankQueryError as any)?.message || "";
 
-  useEffect(() => {
-    if (token && profile?.active) {
-      loadQuestionBank(0, false);
-    }
-  }, [token, profile?.active, loadQuestionBank]);
-
-  useEffect(() => {
-    if (!bankMenuQId) return;
-    const close = () => setBankMenuQId(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [bankMenuQId]);
+  const invalidateQuestionsAndStats = () => {
+    queryClient.invalidateQueries({ queryKey: ["question_bank"] });
+    queryClient.invalidateQueries({ queryKey: ["overview_stats"] });
+  };
 
   const resetBankFilters = () => {
     setBankSearchInput("");
@@ -168,6 +172,7 @@ export default function QuestionsPage() {
     setBankHasSource("all");
     setBankQuizUsage("all");
     setBankSort("newest");
+    setLimit(25);
   };
 
   const activeFilterCount = useMemo(() => {
@@ -188,11 +193,11 @@ export default function QuestionsPage() {
     if (!deleteQuestionTarget) return;
     setDeleteBusy(true);
     try {
-      if (await change(`/rest/v1/questions?id=eq.${deleteQuestionTarget.id}`, null, "DELETE")) {
-        flash("Question deleted.");
-        setDeleteQuestionTarget(null);
-        await loadQuestionBank(bankOffset, false);
-      }
+      await request(`/rest/v1/questions?id=eq.${deleteQuestionTarget.id}`, token, "DELETE");
+      flash("Question deleted.");
+      setDeleteQuestionTarget(null);
+      invalidateQuestionsAndStats();
+      reload();
     } catch (e: any) {
       setError(e.message || "Failed to delete question.");
     } finally {
@@ -204,7 +209,7 @@ export default function QuestionsPage() {
     <>
       <div className="section-title qb-section-title">
         <p style={{ margin: 0 }}>Review submissions and study questions. Correct answers and explanations are clearly indicated.</p>
-<div className="qb-header-actions">
+        <div className="qb-header-actions">
           {!isTeacher && (
             <button className="outline" onClick={() => setMockModalOpen(true)}>
               <Play size={15} /> Practice
@@ -353,7 +358,7 @@ export default function QuestionsPage() {
         <QuestionFilterDrawer
           open={bankFilterPanelOpen}
           onClose={() => setBankFilterPanelOpen(false)}
-          topics={topics}
+          topics={TOPICS}
           topic={bankTopic}
           setTopic={setBankTopic}
           authorId={bankAuthorId}
@@ -382,7 +387,7 @@ export default function QuestionsPage() {
             <strong>Failed to load questions</strong>
             <p>{bankError}</p>
           </div>
-          <button className="outline" onClick={() => loadQuestionBank(0, false)}>
+          <button className="outline" onClick={() => refetchBank()}>
             Retry
           </button>
         </section>
@@ -393,7 +398,7 @@ export default function QuestionsPage() {
           <h3 style={{ margin: 0 }}>
             Questions · <span style={{ opacity: 0.7 }}>Showing {bankQuestions.length} of {bankTotal}</span>
           </h3>
-          {bankLoading && <span className="muted"><RefreshCw size={14} /> Updating list…</span>}
+          {bankFetching && !bankLoading && <span className="muted"><RefreshCw size={14} /> Updating list…</span>}
         </div>
 
         {bankQuestions.map(q => {
@@ -459,7 +464,7 @@ export default function QuestionsPage() {
                               flexDirection: "column"
                             }}
                           >
-                          <button
+                            <button
                               type="button"
                               className="plain"
                               style={{ textAlign: "left", padding: "10px 14px", fontSize: "13px", width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
@@ -569,24 +574,27 @@ export default function QuestionsPage() {
           <div style={{ marginTop: "20px", textAlign: "center" }}>
             <button
               className="outline"
-              disabled={bankLoading}
-              onClick={() => loadQuestionBank(bankQuestions.length, true)}
+              disabled={bankFetching}
+              onClick={() => setLimit(prev => prev + 25)}
               style={{ minWidth: "220px", height: "42px" }}
             >
-              {bankLoading ? "Loading…" : `Load more questions (${bankTotal - bankQuestions.length} remaining)`}
+              {bankFetching ? "Loading…" : `Load more questions (${bankTotal - bankQuestions.length} remaining)`}
             </button>
           </div>
         )}
       </section>
 
-    <QuestionEditorModal
+      <QuestionEditorModal
         isOpen={editorOpen}
         onClose={() => {
           setEditorOpen(false);
           setQuestionToEdit(null);
         }}
         questionToEdit={questionToEdit}
-        onSaved={() => loadQuestionBank(bankOffset, false)}
+        onSaved={() => {
+          invalidateQuestionsAndStats();
+          reload();
+        }}
         isTeacher={isTeacher}
         token={token}
         flash={flash}
@@ -597,9 +605,9 @@ export default function QuestionsPage() {
         isOpen={mockModalOpen}
         onClose={() => setMockModalOpen(false)}
         token={token}
-        topics={topics}
+        topics={TOPICS}
         approvedFallback={bankQuestions}
-     onStart={session => {
+        onStart={session => {
           setActiveMockSession(session);
         }}
         setError={setError}
