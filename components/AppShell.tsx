@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/navigation";
+import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
@@ -10,7 +10,9 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
-  Users
+  Menu,
+  Users,
+  X
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, request } from "../context/AuthContext";
@@ -31,9 +33,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const token = session?.access_token || "";
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isTeacher = profile?.role === "supervisor";
 
-  // Reactive badge count using the shared overview_stats query
+  // Close mobile drawer whenever the user navigates
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
   const { data: overviewStats } = useQuery({
     queryKey: ["overview_stats", profile?.id],
     queryFn: () => request("/rest/v1/rpc/get_overview_stats", token, "POST", {}),
@@ -44,10 +51,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!profile) return null;
 
+  const userInitials = profile.full_name
+    .split(" ")
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const userRoleDisplay =
+    profile.role === "supervisor"
+      ? "Teacher"
+      : profile.role === "student_leader"
+      ? "Student Leader"
+      : "Student";
+
   return (
     <div className="layout">
-      <aside className="sidebar">
-        <div className="brand">
+      {/* Mobile Top Header (Visible only on mobile) */}
+      <header className="mobile-header">
+        <div className="brand-mobile">
           <span className="logo-badge">CP</span>
           <div className="brand-text">
             <h1>CivicPrep</h1>
@@ -55,6 +77,33 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
+        <div className="mobile-header-right">
+          <div className="avatar avatar-sm" title={profile.full_name}>
+            {userInitials}
+          </div>
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            aria-label="Toggle navigation"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
+      </header>
+
+      {/* Main Navigation (Sidebar on Desktop / Slide Drawer on Mobile) */}
+      <aside className={`sidebar ${mobileMenuOpen ? "mobile-open" : ""}`}>
+        {/* Desktop Brand */}
+        <div className="brand desktop-only">
+          <span className="logo-badge">CP</span>
+          <div className="brand-text">
+            <h1>CivicPrep</h1>
+            <span className="version">UPSC Daily Engine</span>
+          </div>
+        </div>
+
+        {/* Navigation Links */}
         <nav className="nav-links">
           {navItems
             .filter(item => item.roles.includes(profile.role))
@@ -70,6 +119,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={e => {
                     e.preventDefault();
                     router.push(item.href);
+                    setMobileMenuOpen(false);
                   }}
                   className={`nav-link ${isActive ? "active" : ""}`}
                 >
@@ -83,32 +133,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             })}
         </nav>
 
+        {/* Profile Card & Logout */}
         <div className="sidebar-foot">
           <div className="user-profile">
-            <div className="avatar">
-              {profile.full_name
-                .split(" ")
-                .map(n => n[0])
-                .slice(0, 2)
-                .join("")
-                .toUpperCase()}
-            </div>
+            <div className="avatar">{userInitials}</div>
             <div className="user-details">
               <span className="user-name">{profile.full_name}</span>
-              <span className="user-role">
-                {profile.role === "supervisor"
-                  ? "Teacher"
-                  : profile.role === "student_leader"
-                  ? "Student Leader"
-                  : "Student"}
-              </span>
+              <span className="user-role">{userRoleDisplay}</span>
             </div>
           </div>
           <button
             type="button"
             className="logout-button"
             onClick={logout}
-            title="Sign out of CivicPrep"
+            title="Sign out"
             aria-label="Sign out"
           >
             <LogOut size={16} />
@@ -116,6 +154,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
+      {/* Backdrop overlay when mobile menu is open */}
+      {mobileMenuOpen && (
+        <div className="mobile-backdrop" onClick={() => setMobileMenuOpen(false)} />
+      )}
+
+      {/* Main View Area */}
       <main className="content">
         <div className="main-content">{children}</div>
       </main>
