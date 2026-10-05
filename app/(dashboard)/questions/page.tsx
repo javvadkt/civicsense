@@ -549,6 +549,12 @@ export default function QuestionsPage() {
                   >
                     Edit
                   </button>
+                  <button
+                          className="danger-outline"
+                          onClick={() => setDeleteQuestionTarget(q)}
+                        >
+                          Delete
+                        </button>
                 </div>
               )}
             </details>
