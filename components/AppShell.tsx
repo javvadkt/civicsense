@@ -48,7 +48,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     queryFn: () => request("/rest/v1/rpc/get_overview_stats", token, "POST", {}),
     enabled: Boolean(token && isTeacher)
   });
-
+// Pre-warm the class directory across all tabs to prevent "Student" name flashes
+useQuery({
+  queryKey: ["people_directory"],
+  queryFn: () =>
+    request(
+      "/rest/v1/profiles?select=id,full_name,role,active,enrollment_number&order=full_name.asc",
+      token
+    ).catch(() => []),
+  enabled: Boolean(token && profile?.active),
+  staleTime: 1000 * 60 * 30, // 30 minutes cache
+  gcTime: 1000 * 60 * 60 // 1 hour memory persistence
+});
   const pendingReviewCount = overviewStats?.stats?.pending_total ?? 0;
 
   if (!profile) return null;
@@ -174,13 +185,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             return (
               <a
-                key={item.href}
-                href={item.href}
-                onClick={e => {
-                  e.preventDefault();
-                  router.push(item.href);
-                }}
-                className={`nav-link ${isActive ? "active" : ""}`}
+            key={item.href}
+            href={item.href}
+            onMouseEnter={() => router.prefetch(item.href)}
+            onClick={e => {
+              e.preventDefault();
+              router.push(item.href);
+            }}
+            className={`nav-link ${isActive ? "active" : ""}`}
               >
                 <Icon size={18} />
                 <span>{item.label}</span>
