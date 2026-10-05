@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Timer } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
 import StudentResultModal, { QuizResultData } from "../../../components/StudentResultModal";
 
@@ -10,6 +11,7 @@ export default function QuizPortalPage() {
   const params = useParams();
   const quizId = params?.id as string;
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { session, profile, loading: authLoading, flash } = useAuth();
   const token = session?.access_token || "";
 
@@ -26,6 +28,16 @@ export default function QuizPortalPage() {
   const timerSubmitRef = useRef(false);
   const autosaveTimerRef = useRef<any>(null);
 
+  const invalidateQuizCaches = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["my_quiz_attempts"] }),
+      queryClient.invalidateQueries({ queryKey: ["quizzes_list"] }),
+      queryClient.invalidateQueries({ queryKey: ["overview_stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["my_quiz_summary"] }),
+      queryClient.invalidateQueries({ queryKey: ["question_bank"] })
+    ]);
+  }, [queryClient]);
+
   const submitQuiz = useCallback(async (auto = false) => {
     if (!quiz || quizBusy || timerSubmitRef.current) return;
     timerSubmitRef.current = true;
@@ -39,12 +51,16 @@ export default function QuizPortalPage() {
         sessionStorage.removeItem(`civicprep_deadline_${quiz.id}`);
       } catch {}
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+
+      // Invalidate cache before navigating so /quizzes immediately displays updated status
+      await invalidateQuizCaches();
+
       if (quiz.result_visibility === "immediate") {
         const res = await request("/rest/v1/rpc/get_my_quiz_result", token, "POST", { p_quiz_id: quiz.id });
         setResultData(res);
       } else {
         flash(auto ? "Time ended. Quiz submitted automatically." : "Quiz submitted successfully.");
-        router.push("/quizzes");
+        router.replace("/quizzes");
       }
     } catch (e: any) {
       timerSubmitRef.current = false;
@@ -52,7 +68,7 @@ export default function QuizPortalPage() {
     } finally {
       setQuizBusy(false);
     }
-  }, [quiz, quizBusy, token, answers, flash, router]);
+  }, [quiz, quizBusy, token, answers, flash, router, invalidateQuizCaches]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -186,7 +202,14 @@ export default function QuizPortalPage() {
         <div className="auth" style={{ textAlign: "center" }}>
           <h2>Quiz Unavailable</h2>
           <p className="error" role="alert">{error}</p>
-          <button type="button" className="primary" onClick={() => router.push("/quizzes")}>
+          <button
+            type="button"
+            className="primary"
+            onClick={async () => {
+              await invalidateQuizCaches();
+              router.replace("/quizzes");
+            }}
+          >
             Return to Quizzes
           </button>
         </div>
@@ -270,7 +293,10 @@ export default function QuizPortalPage() {
       <StudentResultModal
         result={resultData}
         isOpen={Boolean(resultData)}
-        onClose={() => router.push("/quizzes")}
+        onClose={async () => {
+          await invalidateQuizCaches();
+          router.replace("/quizzes");
+        }}
       />
     </>
   );
