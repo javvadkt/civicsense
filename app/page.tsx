@@ -396,8 +396,9 @@ const [modalOpen, setModalOpen] = useState(false),
     [quizDateFilter, setQuizDateFilter] = useState(""),
     [quizVisibility, setQuizVisibility] = useState("immediate"),
     [selectedResult, setSelectedResult] = useState<any>(null);
-  const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
+const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
     [quizQuestions, setQuizQuestions] = useState<any[]>([]),
+    [currentQuizIndex, setCurrentQuizIndex] = useState(0),
     [answers, setAnswers] = useState<Record<string, number>>({}),
     [deadline, setDeadline] = useState<number | null>(null),
     [remaining, setRemaining] = useState(0),
@@ -992,7 +993,7 @@ useEffect(() => {
     return () => window.clearInterval(id);
   }, [activeQuiz, deadline]);
 
-  // Debounced Autosave Hook
+// Debounced Autosave Hook (detached from clock ticks to prevent cancellation)
   useEffect(() => {
     if (!activeQuiz || !token || timerSubmitRef.current) return;
     try {
@@ -1001,7 +1002,9 @@ useEffect(() => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(async () => {
       try {
-        const timeTaken = Math.max(0, activeQuiz.duration_minutes * 60 - remaining);
+        const timeTaken = deadline
+          ? Math.max(0, activeQuiz.duration_minutes * 60 - Math.ceil((deadline - Date.now()) / 1000))
+          : 0;
         const res = await request("/rest/v1/rpc/autosave_quiz_progress", token, "POST", {
           p_quiz_id: activeQuiz.id,
           p_answers: answers,
@@ -1015,7 +1018,7 @@ useEffect(() => {
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [answers, activeQuiz, token, remaining]);
+  }, [answers, activeQuiz, token, deadline]);
 
  // Warn before leaving or closing during an active quiz
   useEffect(() => {
@@ -1467,14 +1470,14 @@ const links = [
         sessionStorage.setItem(`civicprep_deadline_${z.id}`, String(end));
       } catch {}
 
-      setQuizQuestions(items);
+     setQuizQuestions(items);
+      setCurrentQuizIndex(0);
       setActiveQuiz(z);
       setAnswers(restoredAnswers);
       timerSubmitRef.current = false;
       setDeadline(end);
       setRemaining(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
       setSelectedResult(null);
-      document.documentElement.requestFullscreen?.().catch(() => {});
     } catch (e: any) {
       setError(e.message);
     }
@@ -5531,66 +5534,23 @@ const eligibleStudents = people
         </section>
       </div>
     )}
-
-    {/* Active Quiz Screen with Autosave */}
+{/* Active Quiz Screen with One Question at a Time */}
     {activeQuiz && (
         <div className="quiz-portal">
           <header className="portal-header">
-            <div>
+            <div className="portal-header-info">
               <span className="eyebrow">CIVICPREP · QUIZ IN PROGRESS</span>
               <h1>{activeQuiz.title}</h1>
             </div>
-            <div className={`timer ${remaining < 60 ? "timer-low" : ""}`}>
-              <Timer size={20} />
-              <span>
-                {String(Math.floor(remaining / 60)).padStart(2, "0")}:{String(remaining % 60).padStart(2, "0")}
-              </span>
-            </div>
-          </header>
-          <div className="portal-body">
-            <aside className="question-nav">
-              <strong>Questions</strong>
-              <div>
-                {quizQuestions.map((q, i) => (
-                  <button
-                    key={q.id}
-                    className={answers[q.id] !== undefined ? "answered" : ""}
-                    onClick={() => document.getElementById(`portal-q-${i}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
+            <div className="portal-header-tools">
+              <div className={`timer ${remaining < 60 ? "timer-low" : ""}`}>
+                <Timer size={18} />
+                <span>
+                  {String(Math.floor(remaining / 60)).padStart(2, "0")}:{String(remaining % 60).padStart(2, "0")}
+                </span>
               </div>
-              <small>
-                {Object.keys(answers).length} of {quizQuestions.length} answered
-              </small>
-              <p>Unanswered questions are submitted as blank when time ends.</p>
-            </aside>
-            <section className="portal-questions">
-              {quizQuestions.map((q, i) => (
-                <article className="portal-question" id={`portal-q-${i}`} key={q.id}>
-                  <span className="eyebrow">
-                    QUESTION {i + 1} OF {quizQuestions.length} · {q.topic}
-                  </span>
-                  <h2>{q.stem}</h2>
-                  <div className="portal-options">
-                    {q.options.map((option: string, j: number) => (
-                      <label key={j} className={answers[q.id] === j ? "chosen" : ""}>
-                        <input
-                          type="radio"
-                          name={q.id}
-                          checked={answers[q.id] === j}
-                          onChange={() => setAnswers(old => ({ ...old, [q.id]: j }))}
-                        />
-                        <span className="option-letter">{"ABCD"[j]}</span>
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </article>
-              ))}
               <button
-                className="primary portal-submit"
+                className="primary portal-header-submit-btn"
                 onClick={() => {
                   const left = quizQuestions.length - Object.keys(answers).length;
                   if (left > 0 && !confirm(`${left} question${left === 1 ? "" : "s"} unanswered. Submit anyway?`)) return;
@@ -5598,8 +5558,113 @@ const eligibleStudents = people
                 }}
                 disabled={quizBusy}
               >
-                {quizBusy ? "Submitting…" : "Submit answers"}
+                {quizBusy ? "Submitting…" : "Submit"}
               </button>
+            </div>
+          </header>
+
+          <div className="portal-body">
+            <aside className="question-nav">
+              <div className="question-nav-header">
+                <strong>Questions</strong>
+                <span className="pill" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                  {Object.keys(answers).length}/{quizQuestions.length} answered
+                </span>
+              </div>
+              <div className="question-nav-grid">
+                {quizQuestions.map((q, i) => {
+                  const isAnswered = answers[q.id] !== undefined;
+                  const isCurrent = i === currentQuizIndex;
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      className={`nav-btn ${isAnswered ? "answered" : ""} ${isCurrent ? "current" : ""}`}
+                      onClick={() => setCurrentQuizIndex(i)}
+                      aria-label={`Go to question ${i + 1}`}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+              <small>Click any number to jump directly to that question.</small>
+            </aside>
+
+            <section className="portal-questions">
+              {(() => {
+                const q = quizQuestions[currentQuizIndex];
+                if (!q) return null;
+                const isAnswered = answers[q.id] !== undefined;
+                return (
+                  <article className="portal-question" key={q.id}>
+                    <div className="portal-question-top">
+                      <span className="eyebrow">
+                        QUESTION {currentQuizIndex + 1} OF {quizQuestions.length} · {q.topic}
+                      </span>
+                      <span className={`tag ${isAnswered ? "approved" : "pending"}`} style={{ fontSize: "11px", padding: "2px 8px" }}>
+                        {isAnswered ? "Answered" : "Unanswered"}
+                      </span>
+                    </div>
+
+                    <h2>{q.stem}</h2>
+
+                    <div className="portal-options">
+                      {q.options.map((option: string, j: number) => {
+                        const isChosen = answers[q.id] === j;
+                        return (
+                          <label key={j} className={isChosen ? "chosen" : ""}>
+                            <input
+                              type="radio"
+                              name={q.id}
+                              checked={isChosen}
+                              onChange={() => {
+                                setAnswers(old => ({ ...old, [q.id]: j }));
+                              }}
+                            />
+                            <span className="option-letter">{"ABCD"[j]}</span>
+                            <span className="option-text">{option}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <footer className="portal-step-actions">
+                      <button
+                        type="button"
+                        className="outline"
+                        disabled={currentQuizIndex === 0}
+                        onClick={() => setCurrentQuizIndex(c => Math.max(0, c - 1))}
+                      >
+                        Previous
+                      </button>
+
+                      {currentQuizIndex < quizQuestions.length - 1 ? (
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => setCurrentQuizIndex(c => Math.min(quizQuestions.length - 1, c + 1))}
+                        >
+                          Next question
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => {
+                            const left = quizQuestions.length - Object.keys(answers).length;
+                            if (left > 0 && !confirm(`${left} question${left === 1 ? "" : "s"} unanswered. Submit anyway?`)) return;
+                            submitQuiz(false);
+                          }}
+                          disabled={quizBusy}
+                        >
+                          {quizBusy ? "Submitting…" : "Review & Submit"}
+                        </button>
+                      )}
+                    </footer>
+                  </article>
+                );
+              })()}
             </section>
           </div>
         </div>
