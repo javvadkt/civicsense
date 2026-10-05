@@ -114,6 +114,8 @@ export default function QuestionsPage() {
     queryKey: [
       "question_bank",
       {
+        userId: profile?.id,
+        role: profile?.role,
         search: bankDebouncedSearch,
         quick: bankQuick,
         topic: bankTopic,
