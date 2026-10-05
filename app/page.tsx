@@ -2941,7 +2941,7 @@ const eligibleStudents = people
                         <div className="qb-question-badge-kebab" onClick={e => e.stopPropagation()}>
                           <span className={`tag ${q.status}`}>{q.status.replace("_", " ")}</span>
                           {/* Kebab menu on summary row for teachers and admins */}
-                          {review && (
+                          {review canStudentEdit && (
                             <div
                               className="qz-menu-container"
                               style={{ position: "relative" }}
