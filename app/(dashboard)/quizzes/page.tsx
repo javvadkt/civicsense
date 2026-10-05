@@ -58,7 +58,7 @@ function QuizzesListContent() {
   const canManageAcademics = isTeacher;
   const canTakeQuizzes = ["student", "student_leader"].includes(profile?.role || "");
 
-  // 1. Quizzes list query
+// 1. Quizzes list query
   const {
     data: quizzes = [],
     isLoading: quizzesLoading,
@@ -71,7 +71,8 @@ function QuizzesListContent() {
         "/rest/v1/quizzes?select=id,title,kind,opens_at,closes_at,duration_minutes,result_visibility,results_published,published,ended_early_at,is_hidden&order=opens_at.desc",
         token
       ).catch(() => []),
-    enabled: Boolean(token && profile?.active)
+    enabled: Boolean(token && profile?.active),
+    refetchOnMount: "always"
   });
 
   // 2. Personal quiz attempts query (students & leaders)
@@ -82,7 +83,9 @@ function QuizzesListContent() {
         `/rest/v1/quiz_attempts?student_id=eq.${profile?.id}&select=id,quiz_id,status,score,submitted_at`,
         token
       ).catch(() => []),
-    enabled: Boolean(token && profile?.active && canTakeQuizzes)
+    enabled: Boolean(token && profile?.active && canTakeQuizzes),
+    refetchOnMount: "always",
+    staleTime: 0
   });
 
   // 3. Approved questions query for QuizBuilder
@@ -460,11 +463,11 @@ function QuizzesListContent() {
                     (isSubmitted ? (
                       z.result_visibility === "after_release" && !z.results_published ? (
                         <span className="tag pending">Results pending</span>
-                      ) : isLive ? (
+                      ) : (
                         <button className="outline" onClick={() => handleShowResult(z)}>
                           Review answers
                         </button>
-                      ) : null
+                      )
                     ) : isInProgress ? (
                       <button className="outline" disabled>
                         Finalizing submission…
