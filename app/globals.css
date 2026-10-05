@@ -2273,3 +2273,20 @@
     overflow-y: visible;
   }
 }
+/* ==========================================================================
+   UPSC Statement Formatting: Preserve multi-line breaks (\n) in question stems
+   ========================================================================== */
+
+.qb-question-stem strong,
+.portal-question h2,
+.review-item > strong,
+.question summary strong,
+.qb-list b,
+.qb-stem,
+.dq-list b,
+.card h4,
+.review-item p,
+.portal-question p,
+.portal-options .option-text {
+  white-space: pre-line !important;
+}
