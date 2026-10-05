@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { AlertCircle, ExternalLink, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth, request } from "../../../context/AuthContext";
 import type { Question } from "../../../context/DataProvider";
@@ -34,23 +34,49 @@ export default function ReviewPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
+  // 1. Fetch pending questions via RPC (with direct REST fallback)
   const {
     data: pending = [],
     isLoading: pendingLoading,
     isFetching: pendingFetching,
+    error: pendingQueryError,
     refetch: refetchPending
   } = useQuery<Question[]>({
     queryKey: ["pending_review_questions"],
+    queryFn: async () => {
+      try {
+        const rpcRes = await request("/rest/v1/rpc/get_review_questions", token, "POST", {});
+        return rpcRes || [];
+      } catch {
+        // Fallback to direct REST without the broken embedded join
+        const restRes = await request(
+          "/rest/v1/questions?status=in.(pending,revision_requested)&select=id,stem,topic,options,correct_index,explanation,source_url,status,is_special,author_id,created_at&order=created_at.asc",
+          token
+        );
+        return restRes || [];
+      }
+    },
+    enabled: Boolean(token && isTeacher)
+  });
+
+  // 2. People directory to ensure author names always resolve
+  const { data: people = [] } = useQuery<any[]>({
+    queryKey: ["people_directory"],
     queryFn: () =>
       request(
-        "/rest/v1/questions?status=in.(pending,revision_requested)&select=id,stem,topic,options,correct_index,explanation,source_url,status,is_special,author_id,created_at,author:profiles(id,full_name,enrollment_number)&order=created_at.asc",
+        "/rest/v1/profiles?select=id,full_name,role,active,enrollment_number&order=full_name.asc",
         token
       ).catch(() => []),
     enabled: Boolean(token && isTeacher)
   });
 
   const memberName = (q: Question) => {
-    const author = q.author;
+    if (q.author?.full_name) {
+      return q.author.enrollment_number
+        ? `${q.author.full_name} · ${q.author.enrollment_number}`
+        : q.author.full_name;
+    }
+    const author = people.find((p: any) => p.id === q.author_id);
     if (!author) return "Contributor";
     return author.enrollment_number
       ? `${author.full_name} · ${author.enrollment_number}`
@@ -109,6 +135,13 @@ export default function ReviewPage() {
             </span>
           )}
         </div>
+
+        {pendingQueryError && (
+          <div style={{ marginTop: "12px", padding: "10px 14px", background: "#fef2f2", border: "1px solid #fee2e2", borderRadius: "8px", color: "#991b1b", display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertCircle size={16} />
+            <span>Failed to load questions: {(pendingQueryError as any)?.message}</span>
+          </div>
+        )}
 
         {pendingLoading ? (
           <div className="empty">Loading pending submissions…</div>
@@ -170,7 +203,9 @@ export default function ReviewPage() {
           ))
         )}
 
-        {!pending.length && !pendingLoading && <div className="empty">Nothing is waiting for review.</div>}
+        {!pending.length && !pendingLoading && !pendingQueryError && (
+          <div className="empty">Nothing is waiting for review.</div>
+        )}
       </section>
 
       <QuestionEditorModal
