@@ -1808,3 +1808,222 @@
     max-width: 180px;
   }
 }
+/* ==========================================================================
+   Quiz Portal: Single-Question Mode, Number Palette & Mobile Auto-Zoom Fix
+   ========================================================================== */
+
+.quiz-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  background: #f2f6fb;
+  color: #172b45;
+  -webkit-text-size-adjust: 100%;
+}
+
+.portal-header {
+  max-width: 100vw;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.portal-header-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.portal-header-info h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.portal-header-submit-btn {
+  padding: 8px 16px;
+  font-size: 13.5px;
+}
+
+.portal-body {
+  max-width: 100vw;
+  box-sizing: border-box;
+}
+
+/* Question Palette */
+.question-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.question-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.question-nav button.nav-btn {
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid #dce5ef;
+  color: #496078;
+  background: #fff;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.question-nav button.nav-btn.answered {
+  background: #e8f4ed;
+  border-color: #a3d9b5;
+  color: #21643e;
+}
+
+.question-nav button.nav-btn.current {
+  border: 2px solid #1d548e;
+  box-shadow: 0 0 0 2px rgba(29, 84, 142, 0.22);
+  color: #1d548e;
+  font-weight: 800;
+}
+
+/* Question Card & Typography */
+.portal-question {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.portal-question-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.portal-question h2 {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 19px;
+  line-height: 1.5;
+  margin: 10px 0 20px;
+}
+
+.portal-options label {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.option-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.portal-step-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #edf2f7;
+}
+
+.portal-step-actions button {
+  min-width: 120px;
+  padding: 10px 18px;
+}
+
+/* Mobile Fixes (< 760px) */
+@media (max-width: 760px) {
+  .portal-header {
+    padding: 10px 14px;
+  }
+  
+  .portal-header-info h1 {
+    font-size: 16px;
+  }
+  
+  .timer {
+    font-size: 16px;
+    padding: 6px 10px;
+  }
+
+  .portal-body {
+    grid-template-columns: 1fr;
+    padding: 12px 10px;
+    gap: 12px;
+  }
+
+  .question-nav {
+    position: static;
+    padding: 10px 12px;
+  }
+
+  .question-nav-grid {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+
+  .question-nav button.nav-btn {
+    min-width: 38px;
+    flex-shrink: 0;
+  }
+
+  .portal-question {
+    padding: 16px 14px;
+    border-radius: 12px;
+  }
+
+  .portal-question h2 {
+    font-size: 16.5px;
+  }
+
+  /* 16px font prevents iOS/Android web browsers from auto-zooming */
+  .portal-options label {
+    font-size: 16px;
+    padding: 12px;
+  }
+
+  .portal-options input {
+    font-size: 16px;
+  }
+
+  .portal-step-actions {
+    margin-top: 18px;
+  }
+
+  .portal-step-actions button {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
