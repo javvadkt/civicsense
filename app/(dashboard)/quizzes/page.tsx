@@ -104,10 +104,12 @@ function QuizzesListContent() {
     enabled: Boolean(token && profile?.active && canManageAcademics)
   });
 
-  const memberName = (id: string, name: string) => {
-    const enroll = people.find(p => p.id === id)?.enrollment_number;
-    return enroll ? `${name} · ${enroll}` : name;
-  };
+ const memberName = (id: string, fallbackName?: string) => {
+  const person = people.find((p: any) => p.id === id);
+  const fullName = person?.full_name || fallbackName || "Contributor";
+  const enroll = person?.enrollment_number;
+  return enroll ? `${fullName} · ${enroll}` : fullName;
+};
 
   const myAttempts = useMemo(() => new Map(attempts.map((a: any) => [a.quiz_id, a])), [attempts]);
 
