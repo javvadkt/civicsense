@@ -63,12 +63,13 @@ function DutiesContent() {
     enabled: Boolean(token && profile?.active)
   });
 
-  // 2. People directory query for names and enrollment numbers
-  const { data: people = [] } = useQuery<any[]>({
+ // 2. People directory query (reads directly from the warm AppShell cache)
+  const { data: people = [], isLoading: peopleLoading } = useQuery<any[]>({
     queryKey: ["people_directory"],
     queryFn: () =>
       request("/rest/v1/profiles?select=id,full_name,role,active,enrollment_number&order=full_name.asc", token).catch(() => []),
-    enabled: Boolean(token && profile?.active)
+    enabled: Boolean(token && profile?.active),
+    staleTime: 1000 * 60 * 30
   });
 
   // 3. Duty progress query for selected date
@@ -87,17 +88,14 @@ function DutiesContent() {
     enabled: Boolean(token && profile?.active && dutyDate && manage)
   });
 
-  const enrollmentFor = useCallback(
-    (id: string) => people.find(p => p.id === id)?.enrollment_number,
-    [people]
-  );
-
   const memberName = useCallback(
-    (id: string, name: string) => {
-      const enrollment = enrollmentFor(id);
-      return enrollment ? `${name} · ${enrollment}` : name;
+    (id: string, fallbackName?: string) => {
+      const person = people.find((p: any) => p.id === id);
+      const fullName = person?.full_name || fallbackName || (peopleLoading ? "…" : "Student");
+      const enroll = person?.enrollment_number;
+      return enroll ? `${fullName} · ${enroll}` : fullName;
     },
-    [enrollmentFor]
+    [people, peopleLoading]
   );
 
   const selectedDuty = useMemo(() => duties.find(d => d.duty_date === dutyDate), [duties, dutyDate]);
