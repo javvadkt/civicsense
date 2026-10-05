@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
@@ -10,9 +10,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
-  Menu,
-  Users,
-  X
+  Users
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, request } from "../context/AuthContext";
@@ -33,14 +31,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const token = session?.access_token || "";
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const isTeacher = profile?.role === "supervisor";
 
-  // Close mobile drawer whenever the user navigates
+  // Close profile dropdown when clicking outside
   useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [pathname]);
+    if (!profileMenuOpen) return;
+    const handleOutsideClick = () => setProfileMenuOpen(false);
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, [profileMenuOpen]);
 
+  // Reactive badge count for supervisor
   const { data: overviewStats } = useQuery({
     queryKey: ["overview_stats", profile?.id],
     queryFn: () => request("/rest/v1/rpc/get_overview_stats", token, "POST", {}),
@@ -65,10 +67,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       ? "Student Leader"
       : "Student";
 
+  const visibleNavItems = navItems.filter(item => item.roles.includes(profile.role));
+
   return (
     <div className="layout">
-      {/* Mobile Top Header (Visible only on mobile) */}
-      <header className="mobile-header">
+      {/* =========================================================
+          1. MOBILE TOP HEADER (Sticky at very top)
+          ========================================================= */}
+      <header className="mobile-top-bar">
         <div className="brand-mobile">
           <span className="logo-badge">CP</span>
           <div className="brand-text">
@@ -77,25 +83,82 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <div className="mobile-header-right">
-          <div className="avatar avatar-sm" title={profile.full_name}>
-            {userInitials}
-          </div>
+        {/* Clickable Profile Avatar Button */}
+        <div className="profile-anchor" onClick={e => e.stopPropagation()}>
           <button
             type="button"
-            className="mobile-menu-btn"
-            aria-label="Toggle navigation"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="avatar-btn"
+            aria-label="Account menu"
+            onClick={() => setProfileMenuOpen(prev => !prev)}
           >
-            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+            {userInitials}
           </button>
+
+          {/* Profile Dropdown Popover */}
+          {profileMenuOpen && (
+            <div className="profile-popover">
+              <div className="popover-user-info">
+                <div className="avatar avatar-md">{userInitials}</div>
+                <div className="popover-text">
+                  <strong className="popover-name">{profile.full_name}</strong>
+                  <span className="popover-role">{userRoleDisplay}</span>
+                  {profile.enrollment_number && (
+                    <small className="popover-roll">Roll: {profile.enrollment_number}</small>
+                  )}
+                </div>
+              </div>
+
+              <div className="popover-divider" />
+
+              <button
+                type="button"
+                className="popover-logout-btn"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  logout();
+                }}
+              >
+                <LogOut size={16} />
+                <span>Sign out</span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      {/* Main Navigation (Sidebar on Desktop / Slide Drawer on Mobile) */}
-      <aside className={`sidebar ${mobileMenuOpen ? "mobile-open" : ""}`}>
-        {/* Desktop Brand */}
-        <div className="brand desktop-only">
+      {/* =========================================================
+          2. MOBILE TOP NAVBAR (Horizontal pill tabs below header)
+          ========================================================= */}
+      <nav className="mobile-nav-bar" aria-label="Mobile Navigation">
+        <div className="mobile-nav-scroll">
+          {visibleNavItems.map(item => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href;
+            const isReview = item.href === "/review";
+
+            return (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => router.push(item.href)}
+                className={`mobile-tab-btn ${isActive ? "active" : ""}`}
+              >
+                <Icon size={15} />
+                <span>{item.label}</span>
+                {isReview && pendingReviewCount > 0 && (
+                  <span className="mobile-tab-badge">{pendingReviewCount}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* =========================================================
+          3. DESKTOP SIDEBAR (Visible only on desktop screens)
+          ========================================================= */}
+      <aside className="sidebar desktop-sidebar">
+        <div className="brand">
           <span className="logo-badge">CP</span>
           <div className="brand-text">
             <h1>CivicPrep</h1>
@@ -103,37 +166,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Navigation Links */}
         <nav className="nav-links">
-          {navItems
-            .filter(item => item.roles.includes(profile.role))
-            .map(item => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-              const isReviewLink = item.href === "/review";
+          {visibleNavItems.map(item => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href;
+            const isReview = item.href === "/review";
 
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  onClick={e => {
-                    e.preventDefault();
-                    router.push(item.href);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`nav-link ${isActive ? "active" : ""}`}
-                >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                  {isReviewLink && pendingReviewCount > 0 && (
-                    <span className="nav-badge">{pendingReviewCount}</span>
-                  )}
-                </a>
-              );
-            })}
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                onClick={e => {
+                  e.preventDefault();
+                  router.push(item.href);
+                }}
+                className={`nav-link ${isActive ? "active" : ""}`}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+                {isReview && pendingReviewCount > 0 && (
+                  <span className="nav-badge">{pendingReviewCount}</span>
+                )}
+              </a>
+            );
+          })}
         </nav>
 
-        {/* Profile Card & Logout */}
         <div className="sidebar-foot">
           <div className="user-profile">
             <div className="avatar">{userInitials}</div>
@@ -146,7 +204,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             type="button"
             className="logout-button"
             onClick={logout}
-            title="Sign out"
+            title="Sign out of CivicPrep"
             aria-label="Sign out"
           >
             <LogOut size={16} />
@@ -154,12 +212,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Backdrop overlay when mobile menu is open */}
-      {mobileMenuOpen && (
-        <div className="mobile-backdrop" onClick={() => setMobileMenuOpen(false)} />
-      )}
-
-      {/* Main View Area */}
+      {/* =========================================================
+          4. MAIN VIEW CONTENT
+          ========================================================= */}
       <main className="content">
         <div className="main-content">{children}</div>
       </main>
