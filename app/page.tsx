@@ -1362,15 +1362,15 @@ const links = [
       await request(route("questions"), token, "POST", payload, "return=minimal");
       if (session) await load(session);
       setImportText("");
-      setImportMessage(`${payload.length} question${payload.length === 1 ? "" : "s"} added to the review queue.`);
-      flash(`${payload.length} imported for review.`);
+      setImportMessage("");
+      setModalOpen(false);
+      flash(`${payload.length} question${payload.length === 1 ? "" : "s"} imported successfully.`);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setImportBusy(false);
     }
   }
-
   async function chooseImportFile(file?: File) {
     if (!file) return;
     try {
