@@ -39,6 +39,24 @@ import QuizBuilder, { QuizPayload } from "./QuizBuilder";
 const base = "https://dclxjishlusibfiedroo.supabase.co",
   key = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
 
+const READ_CACHE_TTL_MS = 30_000;
+const cachedRpcReads = new Set([
+  "get_duty_availability",
+  "get_duty_progress",
+  "get_duty_questions",
+  "get_my_quiz_result",
+  "get_my_quiz_summary",
+  "get_my_unlinked_questions",
+  "get_question_bank",
+  "get_question_editor",
+  "get_quiz_attendees_list",
+  "get_quiz_participation",
+  "get_review_questions"
+]);
+const requestCache = new Map<string, { expiresAt: number; data: unknown }>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
+const cacheGenerations = new Map<string, number>();
+
 export const getTodayIST = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 
@@ -191,26 +209,100 @@ EXTRACTION RULES:
 3. MATCH: "correct_answer" must be a character-for-character match to one item in "options".
 4. DISTRACTORS: If only the correct answer is given, create 3 plausible UPSC distractors and shuffle the options.
 5. NO HALLUCINATION: If explanation or source is missing, use "". Do not invent them.`;
-async function request(path: string, token: string, method = "GET", body?: unknown, prefer?: string) {
-  const r = await fetch(base + path, {
-    method,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(prefer ? { Prefer: prefer } : {})
-    },
-    body: body === undefined || method === "DELETE" ? undefined : JSON.stringify(body)
-  });
-  const raw = await r.text();
-  let data: any;
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    data = raw;
+async function request(
+  path: string,
+  token: string,
+  method = "GET",
+  body?: unknown,
+  prefer?: string,
+  options?: { cache?: boolean }
+) {
+  const normalizedMethod = method.toUpperCase();
+  const rpcName = path.match(/^\/rest\/v1\/rpc\/([^?]+)/)?.[1];
+  const readOnlyRpc = Boolean(rpcName && (
+    cachedRpcReads.has(rpcName)
+    || rpcName === "get_mock_quiz_pool"
+  ));
+  const cacheable = options?.cache !== false && (
+    normalizedMethod === "GET"
+    || (normalizedMethod === "POST" && rpcName !== undefined && cachedRpcReads.has(rpcName))
+  );
+  const cacheScope = `${token}\u0000`;
+  const cacheKey = `${cacheScope}${normalizedMethod}\u0000${path}\u0000${body === undefined ? "" : JSON.stringify(body)}\u0000${prefer || ""}`;
+
+  if (cacheable) {
+    const cached = requestCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    if (cached) requestCache.delete(cacheKey);
+    const pending = inFlightRequests.get(cacheKey);
+    if (pending) return pending;
   }
-  if (!r.ok) throw Error(data?.message || data?.error_description || data?.error || `Request failed (${r.status})`);
-  return data;
+
+  const generation = cacheGenerations.get(cacheScope) || 0;
+  const fetchRequest = async () => {
+    const r = await fetch(base + path, {
+      method: normalizedMethod,
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(prefer ? { Prefer: prefer } : {})
+      },
+      body: body === undefined || normalizedMethod === "DELETE" ? undefined : JSON.stringify(body)
+    });
+    const raw = await r.text();
+    let data: any;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = raw;
+    }
+    if (!r.ok) throw Error(data?.message || data?.error_description || data?.error || `Request failed (${r.status})`);
+
+    if (cacheable) {
+      if ((cacheGenerations.get(cacheScope) || 0) === generation) {
+        requestCache.set(cacheKey, { expiresAt: Date.now() + READ_CACHE_TTL_MS, data });
+        if (requestCache.size > 160) {
+          const now = Date.now();
+          for (const [key, entry] of requestCache) {
+            if (entry.expiresAt <= now || requestCache.size > 120) requestCache.delete(key);
+          }
+        }
+      }
+    } else if (
+      ["POST", "PATCH", "PUT", "DELETE"].includes(normalizedMethod)
+      && !(normalizedMethod === "POST" && readOnlyRpc)
+    ) {
+      invalidateRequestCache(token);
+    }
+    return data;
+  };
+
+  const promise = fetchRequest();
+  if (!cacheable) return promise;
+  inFlightRequests.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    if (inFlightRequests.get(cacheKey) === promise) inFlightRequests.delete(cacheKey);
+  }
+}
+
+function invalidateRequestCache(token?: string) {
+  const scope = token === undefined ? null : `${token}\u0000`;
+  if (scope === null) {
+    requestCache.clear();
+    inFlightRequests.clear();
+    cacheGenerations.clear();
+    return;
+  }
+  cacheGenerations.set(scope, (cacheGenerations.get(scope) || 0) + 1);
+  for (const cacheKey of requestCache.keys()) {
+    if (cacheKey.startsWith(scope)) requestCache.delete(cacheKey);
+  }
+  for (const cacheKey of inFlightRequests.keys()) {
+    if (cacheKey.startsWith(scope)) inFlightRequests.delete(cacheKey);
+  }
 }
 
 const route = (table: string, query = "") => `/rest/v1/${table}${query ? `?${query}` : ""}`;
@@ -959,7 +1051,7 @@ useEffect(() => {
         setDutyAvailability(avail || []);
       })
       .catch((e: any) => setError(e.message));
-  }, [session, profile?.active, profile?.id, manage, view, dutyDate, token, questions, duties]);
+  }, [session, profile?.active, profile?.id, manage, view, dutyDate, token]);
 
   // Load class-wide quiz attempts for the Marks summary matrix (Teachers & Admins)
   const loadGradebook = useCallback(async () => {
@@ -977,6 +1069,33 @@ useEffect(() => {
       setGradebookLoading(false);
     }
   }, [token, review]);
+
+  async function refreshCurrentData() {
+    if (!session) return;
+    invalidateRequestCache(token);
+    setRefreshing(true);
+    try {
+      await load(session);
+      if (view === "Question bank") {
+        await loadQuestionBank(0, false);
+      } else if (view === "Marks summary" && review) {
+        await loadGradebook();
+      } else if (view === "Duty calendar") {
+        const [progress, availability] = await Promise.all([
+          request("/rest/v1/rpc/get_duty_progress", token, "POST", { p_duty_date: dutyDate }),
+          manage
+            ? request("/rest/v1/rpc/get_duty_availability", token, "POST", { p_duty_date: dutyDate })
+            : Promise.resolve([])
+        ]);
+        setDutyProgress(progress || []);
+        setDutyAvailability(availability || []);
+      }
+    } catch (e: any) {
+      setError(e.message || "Could not refresh data.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (session && profile?.active && view === "Marks summary" && review) {
@@ -1099,7 +1218,11 @@ useEffect(() => {
       try {
         const rows = await request(
           route("quizzes", `id=eq.${activeQuiz.id}&select=ended_early_at,closes_at`),
-          token
+          token,
+          "GET",
+          undefined,
+          undefined,
+          { cache: false }
         );
         const qz = rows?.[0];
         if (qz && (qz.ended_early_at || new Date(qz.closes_at).getTime() <= Date.now())) {
@@ -1263,6 +1386,7 @@ useEffect(() => {
   }
 
 function logout() {
+    invalidateRequestCache(token);
     request("/auth/v1/logout", token, "POST").catch(() => {});
     localStorage.removeItem("civicprep_session");
     setSession(null);
@@ -2186,7 +2310,14 @@ const eligibleStudents = people
             approved, sign in again to open the workspace.
           </p>
           {error && <p className="error">{error}</p>}
-          <button className="primary" onClick={() => load(session).catch((e: any) => setError(e.message))}>
+          <button
+            className="primary"
+            onClick={() => {
+              if (!session) return;
+              invalidateRequestCache(session.access_token);
+              load(session).catch((e: any) => setError(e.message));
+            }}
+          >
             Check approval
           </button>
           <button className="plain" onClick={logout}>
@@ -2369,6 +2500,15 @@ const eligibleStudents = people
                 <RefreshCw size={14} /> Updating
               </span>
             )}
+            <button
+              type="button"
+              className="outline"
+              onClick={refreshCurrentData}
+              disabled={refreshing}
+              aria-label="Refresh current data"
+            >
+              <RefreshCw size={14} /> Refresh
+            </button>
           </div>
         </header>
 
