@@ -52,10 +52,10 @@ const nextHour = () => {
   return d;
 };
 const windows: [string, number][] = [
+  ["10 minutes", 6e5],
+  ["20 minutes", 12e5],
   ["1 hour", 36e5],
-  ["1 day", 864e5],
-  ["3 days", 2592e5],
-  ["1 week", 6048e5]
+  ["1 day", 864e5]
 ];
 
 export default function QuizBuilder({
@@ -66,15 +66,15 @@ export default function QuizBuilder({
   onClose,
   editingQuiz
 }: Props) {
-  const [title, setTitle] = useState(editingQuiz?.title || "");
-  const [kind, setKind] = useState(editingQuiz?.kind || "weekly");
+  const [title, setTitle] = useState(editingQuiz?.title || "GPA Daily Quiz");
+  const [kind, setKind] = useState(editingQuiz?.kind || "daily");
   const [opens, setOpens] = useState(
     editingQuiz ? toInput(new Date(editingQuiz.opens_at)) : toInput(nextHour())
   );
   const [closes, setCloses] = useState(
     editingQuiz
       ? toInput(new Date(editingQuiz.closes_at))
-      : toInput(new Date(nextHour().getTime() + 864e5))
+      : toInput(new Date(nextHour().getTime() + 9e5))
   );
   const [duration, setDuration] = useState(editingQuiz?.duration_minutes ?? 10);
   const [visibility, setVisibility] = useState(editingQuiz?.result_visibility || "immediate");
