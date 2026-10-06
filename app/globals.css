@@ -1863,6 +1863,11 @@
   box-sizing: border-box;
 }
 
+.portal-body > *,
+.portal-questions {
+  min-width: 0;
+}
+
 /* Question Palette */
 .question-nav-header {
   display: flex;
@@ -1915,13 +1920,20 @@
 
 .portal-question-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
 }
 
+.portal-question-top > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .portal-question h2 {
+  max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
   font-size: 19px;
@@ -1933,6 +1945,13 @@
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.portal-options label > span {
+  min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -1960,10 +1979,11 @@
 }
 
 /* Mobile Fixes (< 760px) */
-@media (min-width: 761px) and (max-width: 1100px) {
+@media (min-width: 761px) and (max-width: 1200px) {
   .portal-body {
     grid-template-columns: minmax(0, 1fr);
-    max-width: 824px;
+    width: 100%;
+    max-width: 100%;
     margin: 0 auto;
     padding: 18px 14px;
     gap: 12px;
@@ -1984,6 +2004,12 @@
   .question-nav button.nav-btn {
     min-width: 38px;
     flex-shrink: 0;
+  }
+
+  .portal-questions {
+    width: 100%;
+    max-width: 824px;
+    margin: 0 auto;
   }
 }
 
