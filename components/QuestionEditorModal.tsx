@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleHelp, Copy, FileQuestion, Upload, X } from "lucide-react";
+import { 
+  ArrowRight, 
+  Check, 
+  CircleHelp, 
+  Copy, 
+  ExternalLink, 
+  FileQuestion, 
+  RotateCcw, 
+  Upload, 
+  X 
+} from "lucide-react";
 import { request } from "../context/AuthContext";
 import type { Question } from "../context/DataProvider";
 
@@ -10,10 +20,10 @@ export const TOPICS = [
   "Science & technology", "Government schemes", "History", "Reports & indices", "Other"
 ];
 
-const PROMPT_TEXT = `Act as a strict MCQ data ingestion parser. Convert the text below into raw JSON for database import.
+const PROMPT_BASE = `Act as a strict MCQ data ingestion parser. Convert the text below into raw JSON for database import.
 
 OUTPUT RULES:
-- Output ONLY valid JSON matching the schema below. No markdown fences (json), no conversational filler.
+- Output ONLY valid JSON matching the schema below. No markdown fences (\`\`\`json), no conversational filler.
 - Schema:
 {
   "questions": [
@@ -33,10 +43,7 @@ EXTRACTION RULES:
 2. SANITIZE: Strip all "A)", "B.", "(a)" prefixes from options. Store only raw option text.
 3. MATCH: "correct_answer" must be a character-for-character match to one item in "options".
 4. DISTRACTORS: If only the correct answer is given, create 3 plausible UPSC distractors and shuffle the options.
-5. NO HALLUCINATION: If explanation or source is missing, use "". Do not invent them.
-
---- INPUT TEXT ---
-[PASTE YOUR UPSC MATERIAL HERE]`;
+5. NO HALLUCINATION: If explanation or source is missing, use "". Do not invent them.`;
 
 function parseCsv(input: string) {
   const rows: string[][] = [];
@@ -60,14 +67,17 @@ function parseCsv(input: string) {
 }
 
 function parseImported(raw: string) {
+  // Clean markdown backticks before JSON parsing
+  const sanitized = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+
   let records: any[];
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(sanitized);
     records = Array.isArray(parsed) ? parsed : Array.isArray(parsed.questions) ? parsed.questions : [parsed];
   } catch {
-    records = parseCsv(raw);
+    records = parseCsv(sanitized);
   }
-  if (!records.length) throw new Error("No questions were found in that file.");
+  if (!records.length) throw new Error("No questions were found in that input.");
   return records.map((r: any, i: number) => {
     const stem = String(r.stem ?? r.question ?? "").trim();
     const opts = Array.isArray(r.options) ? r.options : Array.isArray(r.choices) ? r.choices : [r.option_a ?? r.a, r.option_b ?? r.b, r.option_c ?? r.c, r.option_d ?? r.d];
@@ -111,14 +121,18 @@ export default function QuestionEditorModal({
   const [explanation, setExplanation] = useState("");
   const [source, setSource] = useState("");
   const [isSpecial, setIsSpecial] = useState(false);
+
+  // Import State & Accordion Steps
+  const [importStep, setImportStep] = useState<1 | 2 | 3>(1);
+  const [rawText, setRawText] = useState("");
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
   const [importBusy, setImportBusy] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setModalTab(questionToEdit ? "single" : "single");
+    setModalTab("single");
     setStem(questionToEdit?.stem || "");
     setTopic(questionToEdit?.topic || TOPICS[0]);
     setOptions(questionToEdit?.options?.length === 4 ? [...questionToEdit.options] : ["", "", "", ""]);
@@ -126,9 +140,13 @@ export default function QuestionEditorModal({
     setExplanation(questionToEdit?.explanation || "");
     setSource(questionToEdit?.source_url || "");
     setIsSpecial(questionToEdit?.is_special || false);
+    
+    // Reset import wizard state
+    setImportStep(1);
+    setRawText("");
+    setCopiedPrompt(false);
     setImportText("");
     setImportMessage("");
-    setHelpOpen(false);
 
     if (questionToEdit) {
       request("/rest/v1/rpc/get_question_editor", token, "POST", { p_question_id: questionToEdit.id })
@@ -159,6 +177,21 @@ export default function QuestionEditorModal({
       onSaved();
       onClose();
     } catch (err: any) { setError(err.message || "Failed to save question"); }
+  }
+
+  async function handleCopyBundledPrompt() {
+    const fullPrompt = `${PROMPT_BASE}\n\n--- INPUT MATERIAL ---\n${rawText.trim()}`;
+    try {
+      await navigator.clipboard.writeText(fullPrompt);
+      setCopiedPrompt(true);
+      flash("Prompt with your questions copied!");
+      setTimeout(() => {
+        setCopiedPrompt(false);
+        setImportStep(3); // Advance to paste box
+      }, 900);
+    } catch {
+      setError("Unable to copy to clipboard. Please copy manually.");
+    }
   }
 
   async function handleImport() {
@@ -231,40 +264,193 @@ export default function QuestionEditorModal({
               <button className="primary">{questionToEdit ? "Save question" : "Submit for review"}</button>
             </form>
           ) : (
-            <div className="import-panel">
+            <div className="import-panel" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div className="import-heading">
                 <div>
-                  <h3><Upload size={17} /> Import questions</h3>
-                  <p>Paste JSON or CSV, or upload a .json, .csv, or .txt file.</p>
+                  <h3><Upload size={17} /> 3-Step AI Question Importer</h3>
+                  <p>Convert raw notes or questions into clean database JSON with AI.</p>
                 </div>
-                <button type="button" className="help-button" onClick={() => setHelpOpen(!helpOpen)}>
-                  <CircleHelp size={16} /> How to import
-                </button>
-              </div>
-              {helpOpen && (
-                <div className="help-box">
-                  <strong>Ask AI to format your questions</strong>
-                  <p>This prompt asks for four options and fills in three distractors.</p>
-                  <pre>{PROMPT_TEXT}</pre>
-                  <button type="button" className="outline" onClick={() => navigator.clipboard.writeText(PROMPT_TEXT).then(() => flash("Prompt copied."))}>
-                    <Copy size={15} /> Copy prompt
+                {importStep !== 3 && (
+                  <button 
+                    type="button" 
+                    className="help-button" 
+                    style={{ fontSize: "12px", border: "none", background: "none", cursor: "pointer", color: "#64748b" }}
+                    onClick={() => setImportStep(3)}
+                  >
+                    Skip to direct paste / upload &rarr;
                   </button>
-                </div>
-              )}
-              <textarea className="import-text" value={importText} onChange={e => setImportText(e.target.value)} placeholder={'Paste JSON or CSV here...'} />
-              <div className="import-actions">
-                <label className="outline file-button">
-                  <FileQuestion size={15} /> Choose file
-                  <input type="file" accept=".json,.csv,.txt" onChange={async e => {
-                    const f = e.target.files?.[0];
-                    if (f) { setImportText(await f.text()); setImportMessage(`Loaded ${f.name}`); }
-                  }} />
-                </label>
-                <button type="button" className="primary" disabled={importBusy || !importText.trim()} onClick={handleImport}>
-                  {importBusy ? "Importing..." : "Import to review queue"}
-                </button>
+                )}
               </div>
-              {importMessage && <p className="success">{importMessage}</p>}
+
+              {/* STEP 1: PASTE RAW CONTENT */}
+              <div style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "14px 16px",
+                background: importStep === 1 ? "#fff" : "#f8fafc"
+              }}>
+                <div 
+                  onClick={() => setImportStep(1)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{
+                      width: "24px", height: "24px", borderRadius: "50%",
+                      background: importStep === 1 ? "#2563eb" : "#cbd5e1",
+                      color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "12px", fontWeight: "bold"
+                    }}>1</span>
+                    <strong style={{ fontSize: "14px" }}>Paste raw questions & answers</strong>
+                  </div>
+                  {importStep !== 1 && rawText.trim() && (
+                    <span style={{ fontSize: "12px", color: "#059669", background: "#ecfdf5", padding: "2px 8px", borderRadius: "12px" }}>
+                      ✓ {rawText.length} chars loaded (Click to edit)
+                    </span>
+                  )}
+                </div>
+
+                {importStep === 1 && (
+                  <div style={{ marginTop: "12px" }}>
+                    <textarea 
+                      className="import-text" 
+                      rows={5}
+                      value={rawText} 
+                      onChange={e => setRawText(e.target.value)} 
+                      placeholder="Paste your UPSC text, rough MCQ drafts, or stems with correct answers here..." 
+                    />
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
+                      <button 
+                        type="button" 
+                        className="primary" 
+                        disabled={!rawText.trim()}
+                        onClick={() => setImportStep(2)}
+                      >
+                        Next: Generate Prompt <ArrowRight size={14} style={{ marginLeft: "4px" }} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* STEP 2: COPY AI PROMPT */}
+              <div style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "14px 16px",
+                background: importStep === 2 ? "#fff" : "#f8fafc"
+              }}>
+                <div 
+                  onClick={() => rawText.trim() && setImportStep(2)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: rawText.trim() ? "pointer" : "default" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{
+                      width: "24px", height: "24px", borderRadius: "50%",
+                      background: importStep === 2 ? "#2563eb" : "#cbd5e1",
+                      color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "12px", fontWeight: "bold"
+                    }}>2</span>
+                    <strong style={{ fontSize: "14px" }}>Copy prompt with questions</strong>
+                  </div>
+                  {importStep === 3 && (
+                    <span style={{ fontSize: "12px", color: "#059669", background: "#ecfdf5", padding: "2px 8px", borderRadius: "12px" }}>
+                      ✓ Copied
+                    </span>
+                  )}
+                </div>
+
+                {importStep === 2 && (
+                  <div style={{ marginTop: "12px" }}>
+                    <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 12px 0" }}>
+                      Click below to copy your material bundled with the exact UPSC JSON formatting prompt. Paste it into your AI of choice:
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                      <button 
+                        type="button" 
+                        className="primary"
+                        onClick={handleCopyBundledPrompt}
+                        style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                      >
+                        {copiedPrompt ? <Check size={16} /> : <Copy size={16} />}
+                        {copiedPrompt ? "Copied to Clipboard!" : "Copy Prompt + Questions"}
+                      </button>
+
+                      <div style={{ display: "flex", gap: "8px", fontSize: "12px", color: "#64748b", alignItems: "center" }}>
+                        <span>Open:</span>
+                        <a href="https://chatgpt.com" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>ChatGPT <ExternalLink size={10} /></a>
+                        <a href="https://gemini.google.com" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>Gemini <ExternalLink size={10} /></a>
+                        <a href="https://claude.ai" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>Claude <ExternalLink size={10} /></a>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button type="button" className="outline" onClick={() => setImportStep(3)}>
+                        Skip to Paste Response <ArrowRight size={14} style={{ marginLeft: "4px" }} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* STEP 3: PASTE AI RESPONSE & IMPORT */}
+              <div style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "14px 16px",
+                background: importStep === 3 ? "#fff" : "#f8fafc"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{
+                      width: "24px", height: "24px", borderRadius: "50%",
+                      background: importStep === 3 ? "#2563eb" : "#cbd5e1",
+                      color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "12px", fontWeight: "bold"
+                    }}>3</span>
+                    <strong style={{ fontSize: "14px" }}>Paste AI result & import</strong>
+                  </div>
+                </div>
+
+                {importStep === 3 && (
+                  <div style={{ marginTop: "12px" }}>
+                    <textarea 
+                      className="import-text" 
+                      rows={6}
+                      value={importText} 
+                      onChange={e => setImportText(e.target.value)} 
+                      placeholder="Paste the JSON response returned by the AI (or paste CSV / JSON directly)..." 
+                    />
+                    <div className="import-actions" style={{ marginTop: "12px" }}>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <label className="outline file-button">
+                          <FileQuestion size={15} /> Upload file
+                          <input type="file" accept=".json,.csv,.txt" onChange={async e => {
+                            const f = e.target.files?.[0];
+                            if (f) { setImportText(await f.text()); setImportMessage(`Loaded ${f.name}`); }
+                          }} />
+                        </label>
+                        <button 
+                          type="button" 
+                          className="outline" 
+                          onClick={() => { setRawText(""); setImportText(""); setImportStep(1); }}
+                          title="Reset wizard"
+                        >
+                          <RotateCcw size={14} /> Start over
+                        </button>
+                      </div>
+
+                      <button 
+                        type="button" 
+                        className="primary" 
+                        disabled={importBusy || !importText.trim()} 
+                        onClick={handleImport}
+                      >
+                        {importBusy ? "Importing..." : "Import to review queue"}
+                      </button>
+                    </div>
+                    {importMessage && <p className="success" style={{ marginTop: "8px" }}>{importMessage}</p>}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
