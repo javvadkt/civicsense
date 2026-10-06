@@ -77,7 +77,7 @@ export default function QuizBuilder({
       : toInput(new Date(nextHour().getTime() + 9e5))
   );
   const [duration, setDuration] = useState(editingQuiz?.duration_minutes ?? 10);
-  const [visibility, setVisibility] = useState(editingQuiz?.result_visibility || "immediate");
+  const [visibility, setVisibility] = useState(editingQuiz?.result_visibility || "after_release");
   const [search, setSearch] = useState("");
   const [usage, setUsage] = useState<"unused" | "used" | "all">("unused");
   const [todayOnly, setTodayOnly] = useState(false);
