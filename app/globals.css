@@ -1960,9 +1960,46 @@
 }
 
 /* Mobile Fixes (< 760px) */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .portal-body {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 824px;
+    margin: 0 auto;
+    padding: 18px 14px;
+    gap: 12px;
+  }
+
+  .question-nav {
+    position: static;
+    top: auto;
+  }
+
+  .question-nav-grid {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+  }
+
+  .question-nav button.nav-btn {
+    min-width: 38px;
+    flex-shrink: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .portal-header {
     padding: 10px 14px;
+  }
+
+  .quiz-portal .portal-header>div:first-child {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .quiz-portal .portal-header-tools {
+    width: 100%;
+    justify-content: flex-end;
   }
   
   .portal-header-info h1 {

@@ -1,14 +1,20 @@
 # CivicPrep Supabase setup
 
-## Existing database
+## Database scripts
 
-You already ran `setup.sql`; **do not run it again**. It is the original bootstrap script and recreates types. In the Supabase SQL Editor, run these rerunnable upgrades in order:
+The SQL files in this folder are bootstrap scripts and incremental repairs, not a generated snapshot of the live Supabase project. The live database changes only when a script is explicitly run in the Supabase SQL Editor or through the Supabase CLI. Do not rerun old setup or upgrade scripts against a newer live database just to make the files appear synchronized.
 
-1. `upgrade_member_signup_and_duty_rotation.sql` (if not already applied).
-2. `add_student_enrollment_number.sql` (if not already applied).
-3. `upgrade_question_quiz_duty_features.sql` (question editing/import, availability, quiz result release, and quiz-only student question visibility). Re-run this migration after updating the Site; it also resets the safe question-read grants if a full-table grant was added while debugging imports.
-4. If student enrollment is still blank or activation reports that `activate_member` is missing from the schema cache, run `fix_signup_enrollment_and_activation.sql`. It repairs the auth trigger, backfills available signup metadata, recreates one RPC signature, and asks PostgREST to reload its schema.
-5. If duty assignment reports a null `cycle_no`, run `fix_duty_rotation_null_cycle.sql` in the SQL Editor. It restores the initial rotation row and makes the assignment function recreate it if missing.
+`live_schema_snapshot.json` is a read-only catalog snapshot of the live `public` schema, based on the SQL Editor inventory shared on 2026-10-06. It records table columns, constraints, indexes, row-level security policies, functions, triggers, enums, RLS flags, and table grants. It is documentation, not a migration; refresh it after making schema changes in Supabase.
+
+`setup.sql` is the original bootstrap script; **do not run it on an existing project** because it creates types and base objects. The older upgrades and fixes below record prior deployment steps and should only be used when the project is at the matching earlier schema version:
+
+1. `upgrade_member_signup_and_duty_rotation.sql`
+2. `add_student_enrollment_number.sql`
+3. `upgrade_question_quiz_duty_features.sql`
+4. `fix_signup_enrollment_and_activation.sql` (only if enrollment or activation needs that repair)
+5. `fix_duty_rotation_null_cycle.sql` (only if duty assignment needs that repair)
+
+For the inspected live project, `fix_live_question_visibility_and_quiz_submissions.sql` is the targeted patch for student question visibility, practice-pool visibility, and quiz answer recovery. It has been run in the SQL Editor. Before applying any other historical SQL to this project, compare it with the live schema.
 
 The enrollment migration stores a unique enrollment number on student and student-leader profiles. Teachers do not get one. The latest upgrade backfills missing profile numbers from the student’s auth signup metadata. If both records lack the number, the super admin can enter it once in People.
 
@@ -31,7 +37,7 @@ The enrollment migration stores a unique enrollment number on student and studen
 - Student leaders do the same question duty as students. Their extra tools show today's question target, uploads, teacher approvals, and quiz attendance. They can assign the next duty.
 - Duty assignment rotates through active students and student leaders once per cycle. The next cycle begins after every eligible person has had a turn.
 - Students can revise their own pending or revision-requested questions. Teachers and super admins can edit or delete questions at any review stage.
-- Students see their own questions and questions belonging to a quiz only after they start that quiz. Other students cannot browse the approved question bank before starting a quiz.
+- Students can browse their own questions at any time. Other students can browse questions from an after-release quiz only after its results are published; a student does not need to have taken that quiz. While a quiz is live, only its participants can read its questions. Practice mode uses the same visibility rules.
 - Question sources may be publication names or URLs; sources and explanations are optional.
 - A student can declare availability or leave per date. Automatic and manual duty assignment skip unavailable students and preserve the no-repeat rotation.
 - Teachers and super admins can tag special questions and filter the bank by date, contributor, and category while creating a quiz.

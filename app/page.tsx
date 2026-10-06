@@ -204,6 +204,19 @@ async function request(path: string, token: string, method = "GET", body?: unkno
 
 const route = (table: string, query = "") => `/rest/v1/${table}${query ? `?${query}` : ""}`;
 
+function mergeQuizAnswers(...answerSets: unknown[]): Record<string, number> {
+  const answers: Record<string, number> = {};
+  for (const answerSet of answerSets) {
+    if (!answerSet || typeof answerSet !== "object" || Array.isArray(answerSet)) continue;
+    for (const [questionId, selectedIndex] of Object.entries(answerSet)) {
+      if (typeof selectedIndex === "number" && Number.isInteger(selectedIndex) && selectedIndex >= 0) {
+        answers[questionId] = selectedIndex;
+      }
+    }
+  }
+  return answers;
+}
+
 async function loadDutyRows(token: string) {
   const since = new Date(Date.now() - 45 * 864e5).toLocaleDateString("en-CA");
   const filter = `&duty_date=gte.${since}&order=duty_date.asc&limit=200`;
@@ -1013,7 +1026,10 @@ useEffect(() => {
         if (res && res.status === "closed") {
           submitQuiz(true);
         }
-      } catch {}
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        setError(`Quiz answers could not be saved. Keep this page open and check your connection. ${message}`);
+      }
     }, 1500);
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
@@ -1042,16 +1058,15 @@ useEffect(() => {
     if (orphaned) {
       (async () => {
         try {
-          let ans = orphaned.autosaved_answers;
-          if (!ans || Object.keys(ans).length === 0) {
-            try {
-              const local = localStorage.getItem(`civicprep_answers_${orphaned.quiz_id}`);
-              if (local) ans = JSON.parse(local);
-            } catch {}
-          }
+          let localAnswers: unknown;
+          try {
+            const local = localStorage.getItem(`civicprep_answers_${orphaned.quiz_id}`);
+            if (local) localAnswers = JSON.parse(local);
+          } catch {}
+          const ans = mergeQuizAnswers(orphaned.autosaved_answers, localAnswers);
           await request("/rest/v1/rpc/submit_quiz", token, "POST", {
             p_quiz_id: orphaned.quiz_id,
-            p_answers: ans || {}
+            p_answers: ans
           });
           try {
             localStorage.removeItem(`civicprep_answers_${orphaned.quiz_id}`);
@@ -1388,7 +1403,13 @@ const links = [
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     setQuizBusy(true);
     try {
-      await request("/rest/v1/rpc/submit_quiz", token, "POST", { p_quiz_id: activeQuiz.id, p_answers: answers });
+      let localAnswers: unknown;
+      try {
+        const local = localStorage.getItem(`civicprep_answers_${activeQuiz.id}`);
+        if (local) localAnswers = JSON.parse(local);
+      } catch {}
+      const finalAnswers = mergeQuizAnswers(localAnswers, answers);
+      await request("/rest/v1/rpc/submit_quiz", token, "POST", { p_quiz_id: activeQuiz.id, p_answers: finalAnswers });
      const quiz = activeQuiz;
       try {
         localStorage.removeItem(`civicprep_answers_${quiz.id}`);
@@ -1446,24 +1467,22 @@ const links = [
         ? savedDeadline
         : serverCalculatedEnd;
 
-      let restoredAnswers: Record<string, number> = {};
-      if (started?.autosaved_answers && typeof started.autosaved_answers === "object") {
-        restoredAnswers = started.autosaved_answers;
-      } else {
+      let serverAnswers: unknown = started?.autosaved_answers;
+      if (!serverAnswers || typeof serverAnswers !== "object" || Array.isArray(serverAnswers)) {
         try {
           const prev = await request(
             route("quiz_attempts", `quiz_id=eq.${z.id}&student_id=eq.${profile?.id}&select=autosaved_answers`),
             token
           );
-          if (prev?.[0]?.autosaved_answers) restoredAnswers = prev[0].autosaved_answers;
+          serverAnswers = prev?.[0]?.autosaved_answers;
         } catch {}
       }
-      if (!Object.keys(restoredAnswers).length) {
-        try {
-          const local = localStorage.getItem(`civicprep_answers_${z.id}`);
-          if (local) restoredAnswers = JSON.parse(local);
-        } catch {}
-      }
+      let localAnswers: unknown;
+      try {
+        const local = localStorage.getItem(`civicprep_answers_${z.id}`);
+        if (local) localAnswers = JSON.parse(local);
+      } catch {}
+      const restoredAnswers = mergeQuizAnswers(serverAnswers, localAnswers);
 
       try {
         sessionStorage.setItem("civicprep_active_quiz_id", z.id);
@@ -3141,7 +3160,7 @@ const eligibleStudents = people
                   <div className="modal-scroll" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
                     <div className="card" style={{ padding: "12px", background: "#f0f7ff", border: "1px solid #dbeafe", margin: 0 }}>
                       <p style={{ margin: 0, fontSize: "13px", color: "#1e40af" }}>
-                        <b>Practice only:</b> Questions are drawn randomly from your approved bank. Shuffled options and questions. Answers are evaluated instantly in your browser and will <b>not</b> record attendance or affect your marks.
+                        <b>Practice only:</b> Questions are drawn randomly from questions available to you. Shuffled options and questions. Answers are evaluated instantly in your browser and will <b>not</b> record attendance or affect your marks.
                       </p>
                     </div>
 
