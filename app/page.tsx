@@ -167,19 +167,30 @@ const tabSlugs: Record<string, string> = {
 const slugToTab: Record<string, string> = Object.fromEntries(
   Object.entries(tabSlugs).map(([tab, slug]) => [slug, tab])
 );
-const promptText = `Convert the supplied UPSC current-affairs material into importable multiple-choice questions. Return only valid JSON (no Markdown fences) in this shape:
-{
-  "questions": [{
-    "stem": "Question text",
-    "topic": "One of: Polity, Economy, Environment, International relations, Science & technology, Government schemes, History, Reports & indices, Other",
-    "options": ["A", "B", "C", "D"],
-    "correct_answer": "Exact text of the correct option",
-    "explanation": "",
-    "source": ""
-  }]
-}
-If the source gives only a question and correct answer, write three plausible, clearly incorrect distractors that are compatible in form and topic. Keep exactly four options. Do not invent facts or a source; leave explanation and source as empty strings when missing. If a source URL or publication name is supplied, preserve it in source. Ensure correct_answer exactly matches one option.`;
+const promptText = `Act as a strict MCQ data ingestion parser. Convert the text below into raw JSON for database import.
 
+OUTPUT RULES:
+- Output ONLY valid JSON matching the schema below. No markdown fences (json), no conversational filler.
+- Schema:
+{
+  "questions": [
+    {
+      "stem": "Exact question text. Preserve \\n for multi-statement items (1., 2.).",
+      "topic": "Polity" | "Economy" | "Environment" | "International Relations" | "Science & Technology" | "Government Schemes" | "History" | "Reports & Indices" | "Other",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correct_answer": "Exact match to one string in options",
+      "explanation": "Verbatim text if provided, else empty string",
+      "source": "Verbatim source if provided, else empty string"
+    }
+  ]
+}
+
+EXTRACTION RULES:
+1. VERBATIM: Do not rephrase, edit, fix grammar, or summarize existing stems or answers.
+2. SANITIZE: Strip all "A)", "B.", "(a)" prefixes from options. Store only raw option text.
+3. MATCH: "correct_answer" must be a character-for-character match to one item in "options".
+4. DISTRACTORS: If only the correct answer is given, create 3 plausible UPSC distractors and shuffle the options.
+5. NO HALLUCINATION: If explanation or source is missing, use "". Do not invent them.`;
 async function request(path: string, token: string, method = "GET", body?: unknown, prefer?: string) {
   const r = await fetch(base + path, {
     method,
@@ -402,12 +413,12 @@ const [modalOpen, setModalOpen] = useState(false),
   const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
   const [deleteQuestionTarget, setDeleteQuestionTarget] = useState<Question | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [quizTitle, setQuizTitle] = useState(""),
-    [quizKind, setQuizKind] = useState("weekly"),
+  const [quizTitle, setQuizTitle] = useState("GPA Quiz Daily"),
+    [quizKind, setQuizKind] = useState("daily"),
     [quizSpecialFilter, setQuizSpecialFilter] = useState("all"),
     [quizAuthorFilter, setQuizAuthorFilter] = useState<string[]>([]),
     [quizDateFilter, setQuizDateFilter] = useState(""),
-    [quizVisibility, setQuizVisibility] = useState("immediate"),
+    [quizVisibility, setQuizVisibility] = useState("after_release"),
     [selectedResult, setSelectedResult] = useState<any>(null);
 const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
     [quizQuestions, setQuizQuestions] = useState<any[]>([]),
