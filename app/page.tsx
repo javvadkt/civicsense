@@ -167,41 +167,30 @@ const tabSlugs: Record<string, string> = {
 const slugToTab: Record<string, string> = Object.fromEntries(
   Object.entries(tabSlugs).map(([tab, slug]) => [slug, tab])
 );
-const promptText = `You are a strict data ingestion engine for UPSC current-affairs MCQs. Parse and format the input text into structured JSON.
+const promptText = `Act as a strict MCQ data ingestion parser. Convert the text below into raw JSON for database import.
 
-### OUTPUT SPECIFICATION
-Return ONLY raw, valid JSON matching this exact schema. Do not use Markdown backticks (\`\`\`json), explanations, or surrounding text.
-
+OUTPUT RULES:
+- Output ONLY valid JSON matching the schema below. No markdown fences (json), no conversational filler.
+- Schema:
 {
   "questions": [
     {
-      "stem": "string",
+      "stem": "Exact question text. Preserve \\n for multi-statement items (1., 2.).",
       "topic": "Polity" | "Economy" | "Environment" | "International Relations" | "Science & Technology" | "Government Schemes" | "History" | "Reports & Indices" | "Other",
-      "options": ["string", "string", "string", "string"],
-      "correct_answer": "string",
-      "explanation": "string",
-      "source": "string"
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correct_answer": "Exact match to one string in options",
+      "explanation": "Verbatim text if provided, else empty string",
+      "source": "Verbatim source if provided, else empty string"
     }
   ]
 }
 
-### PROCESSING RULES
-1. VERBATIM FIDELITY (CRITICAL):
-   - If the input contains existing questions, options, or answer keys, copy the text EXACTLY as written.
-   - DO NOT rephrase, correct grammar, fix typos, simplify, or rewrite question stems or answers.
-   - For multi-statement UPSC stems ("Consider the following... 1. ... 2. ..."), preserve statement numbers and separate them with clear "\\n" line breaks inside "stem".
-
-2. OPTION SANITIZATION:
-   - Strip all leading option markers like "A)", "B.", "(a)", "(1)" from strings in the "options" array. Store only the option body text.
-   - "correct_answer" MUST be a character-for-character, case-sensitive exact match to one of the 4 strings inside "options" (no trailing spaces, identical punctuation).
-
-3. DISTRACTOR GENERATION (ONLY WHEN MISSING):
-   - If the input provides only a stem and the correct answer, generate exactly 3 plausible, standard UPSC-grade incorrect distractors matching the correct answer's format and grammar.
-   - Randomize the position of the correct answer across the 4 options (do not always place it at index 0).
-
-4. FIELD HANDLING & CONSTRAINTS:
-   - "topic": Map strictly to one of the exact capitalized values in the schema.
-   - "explanation" and "source": If explicitly provided, preserve verbatim. If not present in the input text, set to "" (empty string). Never invent explanations, sources, or publication names.`;
+EXTRACTION RULES:
+1. VERBATIM: Do not rephrase, edit, fix grammar, or summarize existing stems or answers.
+2. SANITIZE: Strip all "A)", "B.", "(a)" prefixes from options. Store only raw option text.
+3. MATCH: "correct_answer" must be a character-for-character match to one item in "options".
+4. DISTRACTORS: If only the correct answer is given, create 3 plausible UPSC distractors and shuffle the options.
+5. NO HALLUCINATION: If explanation or source is missing, use "". Do not invent them.`;
 async function request(path: string, token: string, method = "GET", body?: unknown, prefer?: string) {
   const r = await fetch(base + path, {
     method,
