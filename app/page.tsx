@@ -2468,20 +2468,7 @@ const eligibleStudents = people
             {profile.enrollment_number && <small>Roll: {profile.enrollment_number}</small>}
             <span className="pill profile-pill">{labels[profile.role]}</span>
           </div>
-          <hr className="profile-divider" />
-          <form onSubmit={savePreferredName} style={{ display: "grid", gap: "8px", padding: "10px 0" }}>
-            <label style={{ display: "grid", gap: "4px", fontSize: "12px" }}>
-              Preferred name
-              <input
-                value={preferredNameInput}
-                maxLength={40}
-                onChange={e => setPreferredNameInput(e.target.value)}
-                placeholder="One-word name"
-              />
-            </label>
-            <button className="outline" type="submit">Save preferred name</button>
-          </form>
-          <hr className="profile-divider" />
+ 
           <button
             type="button"
             role="menuitem"
@@ -2547,18 +2534,7 @@ const eligibleStudents = people
             <strong title={profile.full_name}>{profile.preferred_name || profile.full_name}</strong>
             <small>{labels[profile.role]}{profile.enrollment_number ? ` · ${profile.enrollment_number}` : ""}</small>
           </div>
-          <form onSubmit={savePreferredName} style={{ display: "grid", gap: "6px", width: "100%" }}>
-            <label style={{ display: "grid", gap: "4px", fontSize: "12px" }}>
-              Preferred name
-              <input
-                value={preferredNameInput}
-                maxLength={40}
-                onChange={e => setPreferredNameInput(e.target.value)}
-                placeholder="One-word name"
-              />
-            </label>
-            <button type="submit" className="outline">Save name</button>
-          </form>
+          
           <button type="button" onClick={logout} className="identity-signout">
             <LogOut size={16} /> Sign out
           </button>
