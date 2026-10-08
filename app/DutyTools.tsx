@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 export type Api = (path: string, method?: string, body?: unknown, prefer?: string) => Promise<any>;
-export type Person = { id: string; full_name: string; role: string; active: boolean; enrollment_number?: string | null };
+export type Person = { id: string; full_name: string; preferred_name?: string | null; role: string; active: boolean; enrollment_number?: string | null };
 export type Rotation = { cycle: number; rows: { profile_id: string; position: number; assigned_on: string | null }[] };
 
 export const dutyStatuses: Record<string, string> = { assigned: "Assigned", confirmed: "Confirmed", in_progress: "In progress", submitted: "Questions submitted", reviewed: "Reviewed", change_requested: "Change requested", excused: "Excused", missed: "Missed" };
 const iso = (d: Date) => d.toLocaleDateString("en-CA");
 export const shiftDay = (date: string, n: number) => { const x = new Date(`${date}T12:00:00`); x.setDate(x.getDate() + n); return iso(x) };
 export const dayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+const compactName = (person?: { full_name: string; preferred_name?: string | null } | null) => person?.preferred_name?.trim() || person?.full_name.split(/\s+/)[0] || "Student";
 const isMember = (x: Person) => x.active && ["student", "student_leader"].includes(x.role);
 const byEnrollment = (a: Person, b: Person, dir: 1 | -1) => {
   const x = a.enrollment_number || "", y = b.enrollment_number || "";
@@ -42,14 +43,14 @@ export function RotationPanel({ rotation, people, onBulk }: { rotation: Rotation
   return <section className="card rp">
     <div className="rp-head">
       <div><h3>Rotation {rotation?.cycle ?? "—"}</h3>
-        <p>{rotation ? `${done.length} of ${total} students have had their turn` + (waiting.length ? ` · next in line: ${waiting[0].full_name}` : " · everyone is done, so the next assignment starts a new rotation") : "Rotation details are not available yet."}</p></div>
+        <p>{rotation ? `${done.length} of ${total} students have had their turn` + (waiting.length ? ` · next in line: ${compactName(waiting[0])}` : " · everyone is done, so the next assignment starts a new rotation") : "Rotation details are not available yet."}</p></div>
       <button className="outline" onClick={onBulk}>Bulk assign…</button>
     </div>
     {rotation && total > 0 && <>
       <div className="rp-bar"><span style={{ width: `${pct}%` }} /></div>
       <div className="rp-chips">
-        {waiting.map((x, i) => <span key={x.id} className={i === 0 ? "next" : ""}>{i + 1}. {x.full_name}{x.enrollment_number && <i>{x.enrollment_number}</i>}</span>)}
-        {done.map(r => { const x = people.find(y => y.id === r.profile_id); return <span key={r.profile_id} className="done" title={r.assigned_on || ""}>{x?.full_name || "Student"}</span> })}
+        {waiting.map((x, i) => <span key={x.id} className={i === 0 ? "next" : ""}>{i + 1}. {compactName(x)}{x.enrollment_number && <i>{x.enrollment_number}</i>}</span>)}
+        {done.map(r => { const x = people.find(y => y.id === r.profile_id); return <span key={r.profile_id} className="done" title={r.assigned_on || ""}>{compactName(x)}</span> })}
       </div></>}
   </section>;
 }
@@ -136,14 +137,14 @@ export function BulkAssign({ people, duties, rotation, api, flash, fail, refresh
         </div>
 
         <div className="bk-block"><span className="qb-label">Who is included ({pool.length - off.size} of {pool.length})</span>
-          <div className="bk-people">{pool.map(x => <button type="button" key={x.id} className={off.has(x.id) ? "" : "on"} onClick={() => toggle(x.id)}>{x.full_name}{x.enrollment_number ? ` · ${x.enrollment_number}` : ""}</button>)}</div>
+          <div className="bk-people">{pool.map(x => <button type="button" key={x.id} className={off.has(x.id) ? "" : "on"} onClick={() => toggle(x.id)}>{compactName(x)}{x.enrollment_number ? ` · ${x.enrollment_number}` : ""}</button>)}</div>
           <small className="dc-sub">Untick anyone who should be left out of this batch. People on leave are skipped automatically for those days.</small></div>
 
         <div className="bk-block"><span className="qb-label">Preview</span>
           {past && <p className="qb-warn">Choose today or a later start date.</p>}
           {!past && !rows.length && <div className="empty">No days available with these settings.</div>}
-          {rows.length > 0 && <div className="bk-preview">{rows.map((r, i) => <div className="bk-row" key={r.date}><span><b>{dayLabel(r.date)}</b><small>{r.date}</small></span><span>{i + 1}. {r.student.full_name}{r.student.enrollment_number ? <i> · {r.student.enrollment_number}</i> : null}</span></div>)}</div>}
-          {left.length > 0 && !past && <p className="qb-warn">Could not place: {left.map(x => x.full_name).join(", ")}. They were unavailable on every day tried, or there are too many days skipped.</p>}
+          {rows.length > 0 && <div className="bk-preview">{rows.map((r, i) => <div className="bk-row" key={r.date}><span><b>{dayLabel(r.date)}</b><small>{r.date}</small></span><span>{i + 1}. {compactName(r.student)}{r.student.enrollment_number ? <i> · {r.student.enrollment_number}</i> : null}</span></div>)}</div>}
+          {left.length > 0 && !past && <p className="qb-warn">Could not place: {left.map(compactName).join(", ")}. They were unavailable on every day tried, or there are too many days skipped.</p>}
         </div>
       </div>
       <div className="dc-foot">
@@ -439,7 +440,7 @@ export function ReportLeaveModal({
 export function DutyHistory({ dutyId, api, people }: { dutyId: string; api: Api; people: Person[] }) {
   const apiRef = useRef(api); apiRef.current = api;
   const [rows, setRows] = useState<any[] | null>(null);
-  const nm = (id: string | null) => people.find(x => x.id === id)?.full_name || "Someone";
+  const nm = (id: string | null) => compactName(people.find(x => x.id === id)) || "Someone";
   const text = (r: any) => {
     const a: string = r.action;
     if (a === "reassigned") return `Reassigned from ${nm(r.old_student_id)} to ${nm(r.new_student_id)}`;

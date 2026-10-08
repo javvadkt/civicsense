@@ -80,13 +80,13 @@ export default function DutyCalendar(p: Props) {
     (async () => {
       try {
         const res = await apiRef.current(
-          `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
+          `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,preferred_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
         );
         if (active && Array.isArray(res)) setMonthDuties(res);
       } catch {
         try {
           const fallback = await apiRef.current(
-            `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
+            `/rest/v1/duties?select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,preferred_name,enrollment_number)&duty_date=gte.${startStr}&duty_date=lte.${endStr}&order=duty_date.asc`
           );
           if (active && Array.isArray(fallback)) {
             setMonthDuties(fallback.map((d: any) => ({ ...d, duty_status: "assigned", status_note: null })));
@@ -189,7 +189,7 @@ export default function DutyCalendar(p: Props) {
       "Duty roster\n" +
       upcomingDuties
         .slice(0, 14)
-        .map(d => `${dayLabel(d.duty_date)} - ${memberName(d.student_id, d.student?.full_name || "Student")}`)
+        .map(d => `${dayLabel(d.duty_date)} - ${memberName(d.student_id, d.student?.preferred_name || d.student?.full_name || "Student")}`)
         .join("\n");
     navigator.clipboard.writeText(text).then(
       () => p.flash("Roster copied."),
@@ -436,7 +436,7 @@ export default function DutyCalendar(p: Props) {
             const cellStatus = duty?.duty_status || "assigned";
             const cellOverdue = isOverdue(duty);
             const isViewerDuty = duty && duty.student_id === p.profile.id;
-            const studentFirstName = duty ? (duty.student?.full_name || "Student").split(" ")[0] : "";
+            const studentFirstName = duty ? (duty.student?.preferred_name || duty.student?.full_name || "Student").split(" ")[0] : "";
 
             return (
               <button
@@ -509,7 +509,7 @@ export default function DutyCalendar(p: Props) {
                 {isToday ? " · Today" : ""}
               </span>
               <h3>
-                {memberName(selected.student_id, selected.student?.full_name || "Student")}
+                {memberName(selected.student_id, selected.student?.preferred_name || selected.student?.full_name || "Student")}
                 {mine && <span className="dc-you">You</span>}
               </h3>
               <p>Prepare {selected.target_count} current-affairs questions for this date.</p>
@@ -895,7 +895,7 @@ export default function DutyCalendar(p: Props) {
                         />
                         <span>
                           <b>
-                            {dayLabel(d.duty_date)} · {memberName(d.student_id, d.student?.full_name || "Student")}
+                            {dayLabel(d.duty_date)} · {memberName(d.student_id, d.student?.preferred_name || d.student?.full_name || "Student")}
                           </b>
                           <small>{dutyStatuses[d.duty_status || "assigned"]}</small>
                         </span>
@@ -904,8 +904,8 @@ export default function DutyCalendar(p: Props) {
                   </div>
                   {swapTarget && (
                     <div className="dc-swap-preview">
-                      After swapping, <b>{selected.student?.full_name || "this student"}</b> takes{" "}
-                      {dayLabel(swapTarget.duty_date)} and <b>{swapTarget.student?.full_name || "the other student"}</b>{" "}
+                      After swapping, <b>{memberName(selected.student_id, selected.student?.preferred_name || selected.student?.full_name || "this student")}</b> takes{" "}
+                      {dayLabel(swapTarget.duty_date)} and <b>{memberName(swapTarget.student_id, swapTarget.student?.preferred_name || swapTarget.student?.full_name || "the other student")}</b>{" "}
                       takes {dayLabel(selected.duty_date)}.
                     </div>
                   )}

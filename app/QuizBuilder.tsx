@@ -36,7 +36,7 @@ type Props = {
     opens_at: string;
     closes_at: string;
     duration_minutes: number;
-    result_visibility: "immediate" | "after_release";
+    result_visibility: "immediate" | "after_release" | "after_close";
     question_ids?: string[];
   } | null;
 };
@@ -348,6 +348,18 @@ export default function QuizBuilder({
               <span>
                 <b>After I publish results</b>
                 <small>Hidden until you press &quot;Publish results&quot;.</small>
+              </span>
+            </label>
+            <label className={visibility === "after_close" ? "on" : ""}>
+              <input
+                type="radio"
+                name="vis"
+                checked={visibility === "after_close"}
+                onChange={() => setVisibility("after_close")}
+              />
+              <span>
+                <b>When the quiz closes</b>
+                <small>Scores stay hidden until the scheduled close or an early teacher close.</small>
               </span>
             </label>
           </fieldset>

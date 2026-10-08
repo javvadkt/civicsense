@@ -71,6 +71,7 @@ type Session = {
 type Profile = {
   id: string;
   full_name: string;
+  preferred_name?: string | null;
   role: "supervisor" | "student_leader" | "student";
   active: boolean;
   requested_role?: ("supervisor" | "student") | null;
@@ -106,7 +107,7 @@ type Duty = {
   rotation_cycle?: number | null;
   duty_status: string;
   status_note?: string | null;
-  student?: { full_name: string; enrollment_number?: string | null };
+  student?: { full_name: string; preferred_name?: string | null; enrollment_number?: string | null };
 };
 
 type Quiz = {
@@ -117,7 +118,7 @@ type Quiz = {
   closes_at: string;
   duration_minutes: number;
   published: boolean;
-  result_visibility: "immediate" | "after_release";
+  result_visibility: "immediate" | "after_release" | "after_close";
   results_published: boolean;
   ended_early_at?: string | null;
   is_hidden?: boolean;
@@ -148,6 +149,17 @@ type QuizSummary = {
   marks_total: number;
   percent: number;
   pending_results: number;
+};
+
+type QuizMark = {
+  quiz_id: string;
+  title: string;
+  closes_at: string;
+  result_visibility: "immediate" | "after_release" | "after_close";
+  submitted_at: string;
+  available: boolean;
+  score: number | null;
+  total: number | null;
 };
 
 const dutyStatuses: { [key: string]: string } = {
@@ -327,7 +339,7 @@ async function loadDutyRows(token: string) {
     return await request(
       route(
         "duties",
-        `select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,enrollment_number)${filter}`
+        `select=id,duty_date,student_id,target_count,rotation_cycle,duty_status,status_note,student:profiles!duties_student_id_fkey(full_name,preferred_name,enrollment_number)${filter}`
       ),
       token
     );
@@ -336,7 +348,7 @@ async function loadDutyRows(token: string) {
     const rows = await request(
       route(
         "duties",
-        `select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,enrollment_number)${filter}`
+        `select=id,duty_date,student_id,target_count,rotation_cycle,student:profiles!duties_student_id_fkey(full_name,preferred_name,enrollment_number)${filter}`
       ),
       token
     );
@@ -455,6 +467,7 @@ export default function Home() {
     [duties, setDuties] = useState<Duty[]>([]),
     [myDuties, setMyDuties] = useState<Duty[]>([]),
     [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null),
+    [quizMarks, setQuizMarks] = useState<QuizMark[]>([]),
     [quizzes, setQuizzes] = useState<Quiz[]>([]),
     [people, setPeople] = useState<Profile[]>([]),
     [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -500,6 +513,7 @@ const [modalOpen, setModalOpen] = useState(false),
     [enrollmentEdits, setEnrollmentEdits] = useState<Record<string, string>>({});
   // Mobile Profile Menu State (screens <= 750px)
     const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const [preferredNameInput, setPreferredNameInput] = useState("");
 
   // Question Bank Kebab & Modal Delete State
   const [bankMenuQId, setBankMenuQId] = useState<string | null>(null);
@@ -529,6 +543,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
   const timerSubmitRef = useRef(false);
   const autosaveTimerRef = useRef<any>(null);
   const token = session?.access_token || "";
+  const hasPendingCloseMarks = quizMarks.some(mark => mark.result_visibility === "after_close" && !mark.available);
 
 // Dedicated Question Bank State
   const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
@@ -586,6 +601,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
 
   // Student Marks Matrix State (Admin & Teacher)
   const [allAttempts, setAllAttempts] = useState<any[]>([]);
+  const [quizContributors, setQuizContributors] = useState<{ quiz_id: string; author_id: string }[]>([]);
   const [gradebookLoading, setGradebookLoading] = useState(false);
   const [gradebookSearch, setGradebookSearch] = useState("");
   const [gradebookSort, setGradebookSort] = useState<"total_desc" | "name_asc" | "attended_desc">("total_desc");
@@ -654,16 +670,18 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
   }, []);
   const load = useCallback(async (s: Session) => {
     const p = await request(
-        route("profiles", `id=eq.${s.user.id}&select=id,full_name,role,active,requested_role,enrollment_number`),
+        route("profiles", `id=eq.${s.user.id}&select=id,full_name,preferred_name,role,active,requested_role,enrollment_number`),
         s.access_token
       ),
       me = p[0] as Profile | undefined;
     setProfile(me || null);
+    setPreferredNameInput(me?.preferred_name || "");
     if (!me?.active) {
       setQuestions([]);
       setDuties([]);
       setMyDuties([]);
       setQuizSummary(null);
+      setQuizMarks([]);
       setQuizzes([]);
       setPeople([]);
       setAttempts([]);
@@ -672,7 +690,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
     const isTeacherRole = me.role === "supervisor";
     const showDirectory = isTeacherRole || me.role === "student_leader";
     const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
-    const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows] = await Promise.all([
+    const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows, marksRes] = await Promise.all([
       isTeacherRole
         ? Promise.all([
             request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
@@ -703,11 +721,11 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
       ),
       showDirectory
         ? request(
-            route("profiles", "select=id,full_name,role,active,requested_role,enrollment_number&order=full_name.asc"),
+            route("profiles", "select=id,full_name,preferred_name,role,active,requested_role,enrollment_number&order=full_name.asc"),
             s.access_token
           )
         : Promise.resolve([]),
-     request(route("quiz_attempts", `select=quiz_id,submitted_at,score,status,autosaved_answers&student_id=eq.${me.id}`), s.access_token),
+    request(route("quiz_attempts", `select=quiz_id,submitted_at,status,autosaved_answers&student_id=eq.${me.id}`), s.access_token),
       canTakeQuizzesRole
         ? request(
             route(
@@ -720,7 +738,10 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
       canTakeQuizzesRole
         ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}).catch(() => null)
         : Promise.resolve(null),
-      request(route("quiz_questions", "select=question_id"), s.access_token).catch(() => [])
+      request(route("quiz_questions", "select=question_id"), s.access_token).catch(() => []),
+      canTakeQuizzesRole
+        ? request("/rest/v1/rpc/get_my_quiz_marks", s.access_token, "POST", {}).catch(() => [])
+        : Promise.resolve([])
     ]);
 
     const usedIds = new Set((usedQRows || []).map((r: any) => r.question_id));
@@ -735,6 +756,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
     setAttempts(a || []);
     setMyDuties(myDutyRows || []);
     setQuizSummary(summaryRes || null);
+    setQuizMarks(marksRes || []);
   }, []);
   
   useEffect(() => {
@@ -1058,11 +1080,9 @@ useEffect(() => {
     if (!token || !review) return;
     setGradebookLoading(true);
     try {
-      const data = await request(
-        route("quiz_attempts", "select=quiz_id,student_id,score,status,submitted_at&order=submitted_at.desc"),
-        token
-      );
-      setAllAttempts(data || []);
+      const data = await request("/rest/v1/rpc/get_quiz_gradebook", token, "POST", {});
+      setAllAttempts(data?.attempts || []);
+      setQuizContributors(data?.contributors || []);
     } catch (e: any) {
       setError(e.message || "Failed to load class marks.");
     } finally {
@@ -1259,6 +1279,22 @@ useEffect(() => {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!session || !profile?.active || !hasPendingCloseMarks) return;
+    const refreshReleasedMarks = async () => {
+      try {
+        const [marks, summary] = await Promise.all([
+          request("/rest/v1/rpc/get_my_quiz_marks", token, "POST", {}, undefined, { cache: false }),
+          request("/rest/v1/rpc/get_my_quiz_summary", token, "POST", {}, undefined, { cache: false })
+        ]);
+        setQuizMarks(marks || []);
+        setQuizSummary(summary || null);
+      } catch {}
+    };
+    const id = window.setInterval(refreshReleasedMarks, 10_000);
+    return () => window.clearInterval(id);
+  }, [session, profile?.active, hasPendingCloseMarks, token]);
+
   // Global click listeners to close dropdown menus
   useEffect(() => {
     if (!menuQuizId && !bankMenuQId && !mobileProfileOpen) return;
@@ -1400,7 +1436,10 @@ function logout() {
   const enrollmentFor = (id: string) => people.find(p => p.id === id)?.enrollment_number;
   const memberName = (id: string, name: string) => {
     const enrollment = enrollmentFor(id) || questions.find(q => q.author_id === id)?.author?.enrollment_number;
-    return enrollment ? `${name} · ${enrollment}` : name;
+    const preferred = people.find(p => p.id === id)?.preferred_name?.trim()
+      || duties.find(d => d.student_id === id)?.student?.preferred_name?.trim();
+    const compactName = preferred || name.trim().split(/\s+/)[0] || "Student";
+    return enrollment ? `${compactName} · ${enrollment}` : compactName;
   };
   const selectedDuty = duties.find(d => d.duty_date === dutyDate);
   const dutyCandidates = dutyAvailability.length
@@ -1651,6 +1690,23 @@ const links = [
     if (await change("/rest/v1/rpc/publish_quiz_results", { p_quiz_id: z.id })) {
       setQuizzes(old => old.map(q => (q.id === z.id ? { ...q, results_published: true } : q)));
       flash("Results published to students.");
+    }
+  }
+
+  async function savePreferredName(e: React.FormEvent) {
+    e.preventDefault();
+    const value = preferredNameInput.trim();
+    if (/\s/.test(value)) {
+      setError("Preferred name must be a single word.");
+      return;
+    }
+    try {
+      await request("/rest/v1/rpc/set_my_preferred_name", token, "POST", { p_preferred_name: value || null });
+      setProfile(old => old ? { ...old, preferred_name: value || null } : old);
+      setPeople(old => old.map(person => person.id === profile?.id ? { ...person, preferred_name: value || null } : person));
+      flash(value ? "Preferred name saved." : "Preferred name cleared.");
+    } catch (e: any) {
+      setError(e.message || "Could not save preferred name.");
     }
   }
 
@@ -2137,35 +2193,31 @@ const eligibleStudents = people
     };
   }, [review, quizzes, people, allAttempts, clock, gradebookSearch, gradebookSort]);
 
-  const downloadGradebookCSV = () => {
+  const downloadGradebookExcel = () => {
     const { matrix, quizzesList } = gradebookData;
     if (!matrix.length) return;
-
-    const quizHeaders = quizzesList.map(q => `"${q.title.replace(/"/g, '""')}"`);
-    const headers = ["Student Name", "Enrollment Number", ...quizHeaders, "Attended", "Total Marks"];
-
-    const rows = matrix.map(r => {
-      const cols = [
-        `"${r.student.full_name.replace(/"/g, '""')}"`,
-        `"${(r.student.enrollment_number || "").replace(/"/g, '""')}"`
-      ];
-      quizzesList.forEach(z => {
-        const cell = r.scores[z.id];
-        if (cell?.status === "attended") cols.push(String(cell.score ?? 0));
-        else if (cell?.status === "absent") cols.push('"Absent"');
-        else cols.push('"Open"');
-      });
-      cols.push(`"${r.attendedCount} / ${r.eligibleCount}"`);
-      cols.push(String(r.totalMarks));
-      return cols.join(",");
-    });
-
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]!);
+    const contributionKeys = new Set(quizContributors.map(item => `${item.quiz_id}:${item.author_id}`));
+    const headers = ["Student Name", "Enrollment Number", ...quizzesList.map(q => q.title), "Attended", "Total Marks"];
+    const headerHtml = headers.map(value => `<th>${escapeHtml(value)}</th>`).join("");
+    const rowsHtml = matrix.map(row => {
+      const quizCells = quizzesList.map(quiz => {
+        const cell = row.scores[quiz.id];
+        const value = cell?.status === "attended" ? cell.score ?? 0 : cell?.status === "absent" ? "Absent" : "Open";
+        const contributed = contributionKeys.has(`${quiz.id}:${row.student.id}`);
+        const style = contributed ? ' style="background-color:#dcfce7;color:#166534;font-weight:bold"' : "";
+        return `<td${style}>${escapeHtml(value)}</td>`;
+      }).join("");
+      return `<tr><td>${escapeHtml(row.student.full_name)}</td><td>${escapeHtml(row.student.enrollment_number || "")}</td>${quizCells}<td>${row.attendedCount} / ${row.eligibleCount}</td><td>${row.totalMarks}</td></tr>`;
+    }).join("");
+    const workbook = `<!doctype html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px}th{background:#f1f5f9}</style></head><body><table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`;
+    const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `civicprep_marks_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `civicprep_marks_summary_${new Date().toISOString().slice(0, 10)}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2404,7 +2456,7 @@ const eligibleStudents = people
         }}
       >
         <span className="profile-avatar">{initials}</span>
-        <span className="profile-name">{profile.full_name.split(" ")[0]}</span>
+        <span className="profile-name">{profile.preferred_name || profile.full_name.split(" ")[0]}</span>
         <span className="profile-role">{labels[profile.role]}</span>
         <ChevronDown size={14} />
       </button>
@@ -2412,10 +2464,23 @@ const eligibleStudents = people
       {mobileProfileOpen && (
         <div className="profile-dropdown" role="menu" onClick={e => e.stopPropagation()}>
           <div className="profile-dropdown-head">
-            <strong>{profile.full_name}</strong>
+            <strong title={profile.full_name}>{profile.preferred_name || profile.full_name}</strong>
             {profile.enrollment_number && <small>Roll: {profile.enrollment_number}</small>}
             <span className="pill profile-pill">{labels[profile.role]}</span>
           </div>
+          <hr className="profile-divider" />
+          <form onSubmit={savePreferredName} style={{ display: "grid", gap: "8px", padding: "10px 0" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "12px" }}>
+              Preferred name
+              <input
+                value={preferredNameInput}
+                maxLength={40}
+                onChange={e => setPreferredNameInput(e.target.value)}
+                placeholder="One-word name"
+              />
+            </label>
+            <button className="outline" type="submit">Save preferred name</button>
+          </form>
           <hr className="profile-divider" />
           <button
             type="button"
@@ -2479,9 +2544,21 @@ const eligibleStudents = people
         {/* Pinned Desktop Profile / Sign out Box */}
         <div className="desktop-identity identity">
           <div className="identity-user">
-            <strong>{profile.full_name}</strong>
+            <strong title={profile.full_name}>{profile.preferred_name || profile.full_name}</strong>
             <small>{labels[profile.role]}{profile.enrollment_number ? ` · ${profile.enrollment_number}` : ""}</small>
           </div>
+          <form onSubmit={savePreferredName} style={{ display: "grid", gap: "6px", width: "100%" }}>
+            <label style={{ display: "grid", gap: "4px", fontSize: "12px" }}>
+              Preferred name
+              <input
+                value={preferredNameInput}
+                maxLength={40}
+                onChange={e => setPreferredNameInput(e.target.value)}
+                placeholder="One-word name"
+              />
+            </label>
+            <button type="submit" className="outline">Save name</button>
+          </form>
           <button type="button" onClick={logout} className="identity-signout">
             <LogOut size={16} /> Sign out
           </button>
@@ -2535,7 +2612,7 @@ const eligibleStudents = people
           const todayDuty = duties.find(d => d.duty_date === today);
           const isViewerToday = todayDuty?.student_id === profile.id;
           const todayPerson = todayDuty
-            ? (todayDuty.student?.full_name || people.find(p => p.id === todayDuty.student_id)?.full_name || "Student")
+            ? memberName(todayDuty.student_id, todayDuty.student?.preferred_name || people.find(p => p.id === todayDuty.student_id)?.preferred_name || todayDuty.student?.full_name || people.find(p => p.id === todayDuty.student_id)?.full_name || "Student")
             : null;
           const todayEnrollment = todayDuty
             ? (todayDuty.student?.enrollment_number ?? enrollmentFor(todayDuty.student_id))
@@ -2554,7 +2631,7 @@ const eligibleStudents = people
           return (
             <>
               <div className="intro">
-                <h2>Welcome, {profile.full_name.split(" ")[0]}</h2>
+                <h2>Welcome, {profile.preferred_name || profile.full_name.split(" ")[0]}</h2>
                 <p>
                   {profile.role === "supervisor"
                     ? "Review questions, manage members, schedule duties, and publish quizzes."
@@ -2669,13 +2746,6 @@ const eligibleStudents = people
                       <strong>{liveUnsubmitted}</strong>
                       <small>Open now, not yet taken</small>
                     </article>
-                    <article>
-                      <span>My next duty</span>
-                      <strong>
-                        {duties.find(d => d.student_id === profile.id && d.duty_date >= today)?.duty_date || "None"}
-                      </strong>
-                      <small>Five questions per day</small>
-                    </article>
                   </>
                 )}
               </div>
@@ -2718,6 +2788,24 @@ const eligibleStudents = people
                   ) : (
                     <p className="muted-desc">Loading quiz performance summary…</p>
                   )}
+                  <details style={{ marginTop: "16px", borderTop: "1px solid var(--border,#e2e8f0)", paddingTop: "12px" }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                      Marks by quiz ({quizMarks.length})
+                    </summary>
+                    <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+                      {quizMarks.map(mark => (
+                        <div key={mark.quiz_id} style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border,#e2e8f0)" }}>
+                          <span>{mark.title}</span>
+                          {mark.available ? (
+                            <strong>{mark.score} / {mark.total}</strong>
+                          ) : (
+                            <span className="muted-desc">Results pending</span>
+                          )}
+                        </div>
+                      ))}
+                      {!quizMarks.length && <p className="muted-desc">No submitted quizzes yet.</p>}
+                    </div>
+                  </details>
                 </section>
               )}
 
@@ -3920,13 +4008,16 @@ const eligibleStudents = people
 
                   // Academic controller privileges (Teacher only)
                   const canPublish = canManageAcademics && z.result_visibility === "after_release" && !z.results_published;
+                  const resultsReady = z.result_visibility === "immediate"
+                    || (z.result_visibility === "after_release" && z.results_published)
+                    || (z.result_visibility === "after_close" && isClosed);
                   const canViewAttendees = canManageAcademics || isLeader;
                   const canViewQuestions = canManageAcademics;
                   const canReviewAnswers =
                     canTakeQuizzes &&
                     isClosed &&
                     isSubmitted &&
-                    (z.result_visibility === "immediate" || z.results_published);
+                    resultsReady;
                   const canStartNow = canManageAcademics && isUpcoming;
                   const canEditQuiz = canManageAcademics && isUpcoming;
                   const canEndEarly = canManageAcademics && isLive;
@@ -3983,7 +4074,7 @@ const eligibleStudents = people
                             – {new Date(z.closes_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                           <span>•</span>
-                          <span>Results {z.result_visibility === "immediate" ? "immediate" : "after release"}</span>
+                          <span>Results {z.result_visibility === "immediate" ? "immediate" : z.result_visibility === "after_close" ? "when quiz closes" : "after release"}</span>
                         </div>
                         {attempt && isSubmitted ? (
                           <small className="attended" style={{ display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
@@ -4012,7 +4103,7 @@ const eligibleStudents = people
                        {/* Test Taker Primary Card Button */}
                         {canTakeQuizzes &&
                           (isSubmitted ? (
-                            z.result_visibility === "after_release" && !z.results_published ? (
+                            !resultsReady ? (
                               <span className="tag pending">Results pending</span>
                             ) : isLive ? (
                               <button className="outline" onClick={() => showResult(z)}>
@@ -4890,10 +4981,10 @@ const eligibleStudents = people
                 </button>
                 <button
                   className="primary"
-                  onClick={downloadGradebookCSV}
+                  onClick={downloadGradebookExcel}
                   disabled={!gradebookData.matrix.length}
                 >
-                  <Download size={15} /> Export CSV
+                  <Download size={15} /> Export Excel
                 </button>
               </div>
             </div>
@@ -5130,7 +5221,7 @@ const eligibleStudents = people
               </label>
 
               {people
-                .filter(p => `${p.full_name} ${p.enrollment_number || ""}`.toLowerCase().includes(memberSearch.toLowerCase()))
+                .filter(p => `${p.preferred_name || ""} ${p.full_name} ${p.enrollment_number || ""}`.toLowerCase().includes(memberSearch.toLowerCase()))
                 .map(p => {
                   const isPending = !p.active && Boolean(p.requested_role);
                   const isInactive = !p.active && !p.requested_role;
@@ -5139,8 +5230,8 @@ const eligibleStudents = people
                   return (
                  <div className="row member ppl-row" key={p.id}>
                       <div className="ppl-info">
-                        <strong>
-                          {p.full_name}
+                        <strong title={p.full_name}>
+                          {p.preferred_name || p.full_name.split(" ")[0]}
                           {p.enrollment_number ? ` · ${p.enrollment_number}` : ""}
                         </strong>
 
