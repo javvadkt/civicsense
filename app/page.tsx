@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import DutyCalendar from "./DutyCalendar";
 import QuizBuilder, { QuizPayload } from "./QuizBuilder";
+import ExcelJS from "exceljs";
 
 const base = "https://dclxjishlusibfiedroo.supabase.co",
   key = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
@@ -2193,34 +2194,64 @@ const eligibleStudents = people
     };
   }, [review, quizzes, people, allAttempts, clock, gradebookSearch, gradebookSort]);
 
-  const downloadGradebookExcel = () => {
+  const downloadGradebookExcel = async () => {
     const { matrix, quizzesList } = gradebookData;
     if (!matrix.length) return;
-    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    })[char]!);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Marks Summary");
     const contributionKeys = new Set(quizContributors.map(item => `${item.quiz_id}:${item.author_id}`));
     const headers = ["Student Name", "Enrollment Number", ...quizzesList.map(q => q.title), "Attended", "Total Marks"];
-    const headerHtml = headers.map(value => `<th>${escapeHtml(value)}</th>`).join("");
-    const rowsHtml = matrix.map(row => {
-      const quizCells = quizzesList.map(quiz => {
+    worksheet.addRow(headers);
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+    worksheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2, topLeftCell: "C2" }];
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: headers.length }
+    };
+    worksheet.columns = [
+      { width: 28 },
+      { width: 20 },
+      ...quizzesList.map(() => ({ width: 18 })),
+      { width: 14 },
+      { width: 14 }
+    ];
+
+    matrix.forEach(row => {
+      const quizValues = quizzesList.map(quiz => {
         const cell = row.scores[quiz.id];
-        const value = cell?.status === "attended" ? cell.score ?? 0 : cell?.status === "absent" ? "Absent" : "Open";
-        const contributed = contributionKeys.has(`${quiz.id}:${row.student.id}`);
-        const style = contributed ? ' style="background-color:#dcfce7;color:#166534;font-weight:bold"' : "";
-        return `<td${style}>${escapeHtml(value)}</td>`;
-      }).join("");
-      return `<tr><td>${escapeHtml(row.student.full_name)}</td><td>${escapeHtml(row.student.enrollment_number || "")}</td>${quizCells}<td>${row.attendedCount} / ${row.eligibleCount}</td><td>${row.totalMarks}</td></tr>`;
-    }).join("");
-    const workbook = `<!doctype html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px}th{background:#f1f5f9}</style></head><body><table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`;
-    const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8;" });
+        return cell?.status === "attended" ? cell.score ?? 0 : cell?.status === "absent" ? "Absent" : "Open";
+      });
+      const worksheetRow = worksheet.addRow([
+        row.student.full_name,
+        row.student.enrollment_number || "",
+        ...quizValues,
+        `${row.attendedCount} / ${row.eligibleCount}`,
+        row.totalMarks
+      ]);
+      quizzesList.forEach((quiz, index) => {
+        if (contributionKeys.has(`${quiz.id}:${row.student.id}`)) {
+          const cell = worksheetRow.getCell(index + 3);
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
+          cell.font = { bold: true, color: { argb: "FF166534" } };
+        }
+      });
+    });
+
+    const workbookData = await workbook.xlsx.writeBuffer();
+    const bytes = Uint8Array.from(workbookData as unknown as Iterable<number>);
+    const blob = new Blob([bytes.buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `civicprep_marks_summary_${new Date().toISOString().slice(0, 10)}.xls`);
+    link.setAttribute("download", `civicprep_marks_summary_${new Date().toISOString().slice(0, 10)}.xlsx`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
   async function createQuiz(p: QuizPayload) {
     await request("/rest/v1/rpc/create_quiz_with_settings", token, "POST", {
