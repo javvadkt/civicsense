@@ -6,6 +6,7 @@ type Q = {
   id: string;
   stem: string;
   topic: string;
+  status?: string;
   is_special: boolean;
   author_id: string;
   created_at: string;
@@ -25,7 +26,13 @@ export type QuizPayload = {
 
 type Props = {
   questions: Q[];
+  totalQuestions: number;
+  loadedQuestionCount: number;
+  currentTime: number;
+  hasMoreQuestions: boolean;
+  loadingQuestions: boolean;
   memberName: (id: string, name: string) => string;
+  onLoadMoreQuestions: () => void;
   onCreate: (p: QuizPayload) => Promise<void>; // should throw on failure
   onUpdate?: (id: string, p: QuizPayload) => Promise<void>;
   onClose: () => void;
@@ -60,7 +67,13 @@ const windows: [string, number][] = [
 
 export default function QuizBuilder({
   questions,
+  totalQuestions,
+  loadedQuestionCount,
+  currentTime,
+  hasMoreQuestions,
+  loadingQuestions,
   memberName,
+  onLoadMoreQuestions,
   onCreate,
   onUpdate,
   onClose,
@@ -95,22 +108,26 @@ export default function QuizBuilder({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  const approvedQuestions = useMemo(
+    () => questions.filter(q => !q.status || q.status === "approved"),
+    [questions]
+  );
   const byId = useMemo(() => new Map(questions.map(q => [q.id, q])), [questions]);
-  const topics = useMemo(() => Array.from(new Set(questions.map(q => q.topic))).sort(), [questions]);
+  const topics = useMemo(() => Array.from(new Set(approvedQuestions.map(q => q.topic))).sort(), [approvedQuestions]);
   const contributors = useMemo(() => {
     const m = new Map<string, { name: string; n: number }>();
-    questions.forEach(q => {
+    approvedQuestions.forEach(q => {
       const e = m.get(q.author_id);
       m.set(q.author_id, { name: q.author?.full_name || "Contributor", n: (e?.n || 0) + 1 });
     });
     return Array.from(m.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
-  }, [questions]);
+  }, [approvedQuestions]);
 
   const todayStr = useMemo(() => new Date().toLocaleDateString("en-CA"), []);
 
   const shown = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return questions.filter(
+    return approvedQuestions.filter(
       q =>
         (usage === "all" || (usage === "unused" ? !q.is_used_in_quiz : Boolean(q.is_used_in_quiz))) &&
         (!todayOnly || localDay(q.created_at) === todayStr) &&
@@ -121,7 +138,7 @@ export default function QuizBuilder({
         (!to || localDay(q.created_at) <= to) &&
         (!s || q.stem.toLowerCase().includes(s))
     );
-  }, [questions, search, usage, todayOnly, todayStr, cat, topic, authors, from, to]);
+  }, [approvedQuestions, search, usage, todayOnly, todayStr, cat, topic, authors, from, to]);
 
   const moreFilterCount = useMemo(() => {
     let count = 0;
@@ -190,7 +207,7 @@ export default function QuizBuilder({
   if (!picked.length) problems.push("Select at least one question.");
   if (isNaN(oMs) || isNaN(cMs)) problems.push("Set both opening and closing times.");
   else if (cMs <= oMs) problems.push("Closing time must be after opening time.");
-  else if (cMs < Date.now()) problems.push("Closing time is already in the past.");
+  else if (cMs < currentTime) problems.push("Closing time is already in the past.");
   if (!(duration >= 1 && duration <= 180)) problems.push("Duration must be between 1 and 180 minutes.");
   const windowMin = !isNaN(oMs) && !isNaN(cMs) ? Math.floor((cMs - oMs) / 60000) : 0;
   const warn =
@@ -226,8 +243,8 @@ export default function QuizBuilder({
       }
       setReview(false);
       onClose();
-    } catch (e: any) {
-      setErr(e?.message || (editingQuiz ? "Could not update the quiz." : "Could not create the quiz."));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : editingQuiz ? "Could not update the quiz." : "Could not create the quiz.");
       setReview(false);
     } finally {
       setBusy(false);
@@ -497,7 +514,7 @@ export default function QuizBuilder({
 
               <div className="qb-toolbar">
                 <strong>
-                  {shown.length} question{shown.length === 1 ? "" : "s"} shown
+                  {shown.length} question{shown.length === 1 ? "" : "s"} shown · {loadedQuestionCount} loaded of {totalQuestions}
                 </strong>
                 <div>
                   <button type="button" className="outline" onClick={selectShown} disabled={!shown.length}>
@@ -522,7 +539,12 @@ export default function QuizBuilder({
              <div className="qb-list">
                 {shown.map(q => (
                   <label key={q.id} className={pickedSet.has(q.id) ? "on" : ""}>
-                    <input type="checkbox" checked={pickedSet.has(q.id)} onChange={() => toggle(q.id)} />
+                    <input
+                      type="checkbox"
+                      checked={pickedSet.has(q.id)}
+                      disabled={q.status !== undefined && q.status !== "approved" && !pickedSet.has(q.id)}
+                      onChange={() => toggle(q.id)}
+                    />
                     <span>
                       <b>{q.stem}</b>
                       <small style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "4px" }}>
@@ -548,6 +570,20 @@ export default function QuizBuilder({
                 ))}
                 {!shown.length && <div className="empty">No approved questions match these filters.</div>}
               </div>
+              {hasMoreQuestions && (
+                <div className="qb-toolbar">
+                  <span className="muted">Filters search the loaded questions. Load more to include older questions.</span>
+                  <button
+                    type="button"
+                    className="outline"
+                    disabled={loadingQuestions}
+                    onClick={onLoadMoreQuestions}
+                  >
+                    {loadingQuestions ? "Loading…" : "Load more questions"}
+                  </button>
+                </div>
+              )}
+              {loadingQuestions && !questions.length && <div className="empty">Loading approved questions…</div>}
             </div>
 
             <aside className="qb-right">

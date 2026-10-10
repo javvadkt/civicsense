@@ -36,6 +36,7 @@ import {
 import DutyCalendar from "./DutyCalendar";
 import QuizBuilder, { QuizPayload } from "./QuizBuilder";
 import ExcelJS from "exceljs";
+import { createClient } from "@supabase/supabase-js";
 
 const base = "https://dclxjishlusibfiedroo.supabase.co",
   key = "sb_publishable_TdCaDw8CU8M0H1dvBHL-MQ_S3sc_PfE";
@@ -45,6 +46,7 @@ const cachedRpcReads = new Set([
   "get_duty_availability",
   "get_duty_progress",
   "get_duty_questions",
+  "get_my_quiz_marks",
   "get_my_quiz_result",
   "get_my_quiz_summary",
   "get_my_unlinked_questions",
@@ -472,6 +474,9 @@ export default function Home() {
     [quizzes, setQuizzes] = useState<Quiz[]>([]),
     [people, setPeople] = useState<Profile[]>([]),
     [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [quizBuilderQuestionOffset, setQuizBuilderQuestionOffset] = useState(0);
+  const [quizBuilderQuestionTotal, setQuizBuilderQuestionTotal] = useState(0);
+  const [quizBuilderQuestionsLoading, setQuizBuilderQuestionsLoading] = useState(false);
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [newName, setNewName] = useState(""),
@@ -543,9 +548,11 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
 // Step 1 Refs
   const timerSubmitRef = useRef(false);
   const autosaveTimerRef = useRef<any>(null);
+  const lastVisibilityRefreshRef = useRef(0);
+  const lastQuizRefreshRef = useRef(0);
+  const quizBuilderQuestionOffsetRef = useRef(0);
   const token = session?.access_token || "";
   const hasPendingCloseMarks = quizMarks.some(mark => mark.result_visibility === "after_close" && !mark.available);
-  const hasPendingReleaseQuiz = quizzes.some(quiz => quiz.result_visibility === "after_release" && !quiz.results_published);
 
 // Dedicated Question Bank State
   const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
@@ -670,7 +677,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  const load = useCallback(async (s: Session) => {
+  const load = useCallback(async (s: Session, scope?: string) => {
     const p = await request(
         route("profiles", `id=eq.${s.user.id}&select=id,full_name,preferred_name,role,active,requested_role,enrollment_number`),
         s.access_token
@@ -689,46 +696,46 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
       setAttempts([]);
       return;
     }
+    if (scope === "profile") return;
+
     const isTeacherRole = me.role === "supervisor";
     const showDirectory = isTeacherRole || me.role === "student_leader";
     const canTakeQuizzesRole = ["student", "student_leader"].includes(me.role);
-    const [q, d, z, m, a, myDutyRows, summaryRes, usedQRows, marksRes] = await Promise.all([
-      isTeacherRole
-        ? Promise.all([
-            request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
-              (rows || []).map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
-            ),
-            request(
-              route(
-                "questions",
-                "select=id,stem,topic,options,source_url,status,author_id,created_at,is_special,author:profiles!questions_author_id_fkey(full_name,enrollment_number)&status=eq.approved&order=created_at.desc&limit=500"
-              ),
-              s.access_token
-            )
-          ]).then(([rev, app]) => [...rev, ...(app || [])])
-        : request(
+    const loadQuestions = scope === "Overview" || scope === "Review queue";
+    const loadDutyData = scope === "Overview" || scope === "Duty calendar" || scope === "People";
+    const loadQuizData = scope === "Overview" || scope === "Quizzes";
+    const loadDirectory = showDirectory && (scope === "Overview" || scope === "Duty calendar" || scope === "People");
+    const loadAttempts = loadQuizData && canTakeQuizzesRole;
+    const loadMyDuties = scope === "Overview";
+    const loadQuizResults = loadQuizData && canTakeQuizzesRole;
+    const [q, d, z, m, a, myDutyRows, summaryRes, marksRes] = await Promise.all([
+      loadQuestions && isTeacherRole
+        ? request("/rest/v1/rpc/get_review_questions", s.access_token, "POST", {}).then((rows: any[]) =>
+            (rows || []).map(x => ({ ...x, author: { full_name: x.author_full_name, enrollment_number: x.author_enrollment } }))
+          )
+        : loadQuestions ? request(
             route(
               "questions",
-              "select=id,stem,topic,options,source_url,status,author_id,created_at,is_special,author:profiles!questions_author_id_fkey(full_name,enrollment_number)&order=created_at.desc&limit=400"
+              `select=id,stem,topic,options,source_url,status,author_id,created_at,is_special,author:profiles!questions_author_id_fkey(full_name,enrollment_number)&author_id=eq.${me.id}&order=created_at.desc&limit=400`
             ),
             s.access_token
-          ),
-      loadDutyRows(s.access_token),
-      request(
+          ) : Promise.resolve(null),
+      loadDutyData ? loadDutyRows(s.access_token) : Promise.resolve(null),
+      loadQuizData ? request(
         route(
           "quizzes",
           "select=id,title,kind,opens_at,closes_at,duration_minutes,published,result_visibility,results_published,ended_early_at,is_hidden&order=opens_at.desc&limit=120"
         ),
         s.access_token
-      ),
-      showDirectory
+      ) : Promise.resolve(null),
+      loadDirectory
         ? request(
             route("profiles", "select=id,full_name,preferred_name,role,active,requested_role,enrollment_number&order=full_name.asc"),
             s.access_token
           )
-        : Promise.resolve([]),
-    request(route("quiz_attempts", `select=quiz_id,submitted_at,status,autosaved_answers&student_id=eq.${me.id}`), s.access_token),
-      canTakeQuizzesRole
+        : Promise.resolve(null),
+      loadAttempts ? request(route("quiz_attempts", `select=quiz_id,submitted_at,status,autosaved_answers&student_id=eq.${me.id}`), s.access_token) : Promise.resolve(null),
+      loadMyDuties && canTakeQuizzesRole
         ? request(
             route(
               "duties",
@@ -736,29 +743,152 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
             ),
             s.access_token
           ).catch(() => [])
-        : Promise.resolve([]),
-      canTakeQuizzesRole
+        : Promise.resolve(null),
+      loadQuizResults
         ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}).catch(() => null)
         : Promise.resolve(null),
-      request(route("quiz_questions", "select=question_id"), s.access_token).catch(() => []),
-      canTakeQuizzesRole
+      loadQuizResults
         ? request("/rest/v1/rpc/get_my_quiz_marks", s.access_token, "POST", {}).catch(() => [])
-        : Promise.resolve([])
+        : Promise.resolve(null)
     ]);
 
-    const usedIds = new Set((usedQRows || []).map((r: any) => r.question_id));
-    const questionsWithUsage = (q || []).map((item: any) => ({
-      ...item,
-      is_used_in_quiz: item.is_used_in_quiz !== undefined ? Boolean(item.is_used_in_quiz) : usedIds.has(item.id)
-    }));
-    setQuestions(questionsWithUsage);
-    setDuties(d || []);
-    setQuizzes(z || []);
-    setPeople(m || []);
-    setAttempts(a || []);
-    setMyDuties(myDutyRows || []);
-    setQuizSummary(summaryRes || null);
-    setQuizMarks(marksRes || []);
+    if (loadQuestions) setQuestions(q || []);
+    if (loadDutyData) setDuties(d || []);
+    if (loadQuizData) setQuizzes(z || []);
+    if (loadDirectory) setPeople(m || []);
+    if (loadAttempts) setAttempts(a || []);
+    if (loadMyDuties) setMyDuties(myDutyRows || []);
+    if (loadQuizResults) {
+      setQuizSummary(summaryRes || null);
+      setQuizMarks(marksRes || []);
+    }
+  }, []);
+
+  const finishEarlyQuiz = useCallback((quiz: Quiz) => {
+    if (!activeQuiz || activeQuiz.id !== quiz.id || timerSubmitRef.current) return;
+    const endedTitle = activeQuiz.title;
+    timerSubmitRef.current = true;
+    setActiveQuiz(null);
+    setDeadline(null);
+    setQuizQuestions([]);
+    setAnswers({});
+    setQuizBusy(false);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    try {
+      localStorage.removeItem(`civicprep_answers_${activeQuiz.id}`);
+      sessionStorage.removeItem("civicprep_active_quiz_id");
+      sessionStorage.removeItem(`civicprep_deadline_${activeQuiz.id}`);
+    } catch {}
+    setNotice(`"${endedTitle}" was ended early by the instructor. Your autosaved answers were submitted.`);
+    window.setTimeout(() => setNotice(""), 4500);
+  }, [activeQuiz]);
+
+  const refreshQuizData = useCallback(async (s: Session) => {
+    invalidateRequestCache(s.access_token);
+    const canTakeQuizzesRole = ["student", "student_leader"].includes(profile?.role || "");
+    const refreshGradebook = profile?.role === "supervisor" && view === "Marks summary";
+    const [refreshedQuizzes, refreshedAttempts, summary, marks, gradebook] = await Promise.all([
+      request(
+        route(
+          "quizzes",
+          "select=id,title,kind,opens_at,closes_at,duration_minutes,published,result_visibility,results_published,ended_early_at,is_hidden&order=opens_at.desc&limit=120"
+        ),
+        s.access_token,
+        "GET",
+        undefined,
+        undefined,
+        { cache: false }
+      ),
+      canTakeQuizzesRole
+        ? request(
+            route("quiz_attempts", `select=quiz_id,submitted_at,status,autosaved_answers&student_id=eq.${s.user.id}`),
+            s.access_token,
+            "GET",
+            undefined,
+            undefined,
+            { cache: false }
+          )
+        : Promise.resolve([]),
+      canTakeQuizzesRole
+        ? request("/rest/v1/rpc/get_my_quiz_summary", s.access_token, "POST", {}, undefined, { cache: false })
+        : Promise.resolve(null),
+      canTakeQuizzesRole
+        ? request("/rest/v1/rpc/get_my_quiz_marks", s.access_token, "POST", {}, undefined, { cache: false })
+        : Promise.resolve(null),
+      refreshGradebook
+        ? request("/rest/v1/rpc/get_quiz_gradebook", s.access_token, "POST", {}, undefined, { cache: false })
+        : Promise.resolve(null)
+    ]);
+    const endedQuiz = refreshedQuizzes.find((quiz: Quiz) => quiz.id === activeQuiz?.id && quiz.ended_early_at);
+    if (endedQuiz) finishEarlyQuiz(endedQuiz);
+    setQuizzes(refreshedQuizzes || []);
+    setAttempts(refreshedAttempts || []);
+    if (canTakeQuizzesRole) {
+      setQuizSummary(summary || null);
+      setQuizMarks(marks || []);
+    }
+    if (refreshGradebook) {
+      setAllAttempts(gradebook?.attempts || []);
+      setQuizContributors(gradebook?.contributors || []);
+    }
+    lastQuizRefreshRef.current = Date.now();
+  }, [profile?.role, view, activeQuiz, finishEarlyQuiz]);
+
+  const loadQuizBuilderQuestions = useCallback(async (s: Session, append = false, selectedIds: string[] = []) => {
+    const offset = append ? quizBuilderQuestionOffsetRef.current : 0;
+    setQuizBuilderQuestionsLoading(true);
+    if (!append) {
+      setQuestions([]);
+      setQuizBuilderQuestionOffset(0);
+      setQuizBuilderQuestionTotal(0);
+      quizBuilderQuestionOffsetRef.current = 0;
+    }
+    try {
+      const [result, selectedQuestions] = await Promise.all([
+        request("/rest/v1/rpc/get_question_bank", s.access_token, "POST", {
+          p_search: null,
+          p_topic: null,
+          p_author_id: null,
+          p_only_mine: false,
+          p_status: "approved",
+          p_is_special: null,
+          p_date_from: null,
+          p_date_to: null,
+          p_has_source: null,
+          p_quiz_usage: null,
+          p_sort: "newest",
+          p_limit: 100,
+          p_offset: offset
+        }),
+        !append && selectedIds.length
+          ? request(
+              route(
+                "questions",
+                `id=in.(${selectedIds.map(encodeURIComponent).join(",")})&select=id,stem,topic,status,is_special,author_id,created_at,author:profiles!questions_author_id_fkey(full_name)`
+              ),
+              s.access_token
+            )
+          : Promise.resolve([])
+      ]);
+      const page = result?.questions || [];
+      const loadedQuestions = [
+        ...page,
+        ...(selectedQuestions || []).map((question: Question) => ({ ...question, is_used_in_quiz: true }))
+      ];
+      setQuestions(previous => {
+        if (!append) {
+          const unique = new Map(loadedQuestions.map(question => [question.id, question]));
+          return Array.from(unique.values());
+        }
+        const existing = new Set(previous.map(question => question.id));
+        return [...previous, ...page.filter((question: Question) => !existing.has(question.id))];
+      });
+      quizBuilderQuestionOffsetRef.current = offset + page.length;
+      setQuizBuilderQuestionOffset(quizBuilderQuestionOffsetRef.current);
+      setQuizBuilderQuestionTotal(result?.total ?? 0);
+    } finally {
+      setQuizBuilderQuestionsLoading(false);
+    }
   }, []);
   
   useEffect(() => {
@@ -798,7 +928,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
           }
         }
         setSession(s);
-        if (s) await load(s);
+        if (s) await load(s, "profile");
       } catch (e: any) {
         setError(e.message);
       } finally {
@@ -810,7 +940,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
 useEffect(() => {
     if (session && profile?.active) {
       setRefreshing(true);
-      load(session)
+      load(session, view)
         .catch((e: any) => setError(e.message))
         .finally(() => setRefreshing(false));
     }
@@ -846,7 +976,7 @@ useEffect(() => {
         p_has_source: bankHasSource === "all" ? null : bankHasSource === "yes",
         p_quiz_usage: bankQuizUsage === "all" ? null : bankQuizUsage,
         p_sort: bankSort,
-        p_limit: 25,
+        p_limit: 10,
         p_offset: offset
       });
       if (res) {
@@ -886,6 +1016,16 @@ useEffect(() => {
       loadQuestionBank(0, false);
     }
   }, [view, session, profile?.active, loadQuestionBank]);
+
+    useEffect(() => {
+      if (!session || !profile?.active || !review || view !== "Quizzes" || !builderOpen) return;
+      const id = window.setTimeout(() => {
+        loadQuizBuilderQuestions(session, false, editingQuiz?.question_ids || []).catch((e: unknown) => {
+          setError(e instanceof Error ? e.message : String(e));
+        });
+      }, 0);
+      return () => window.clearTimeout(id);
+    }, [session, profile?.active, review, view, builderOpen, editingQuiz?.question_ids, loadQuizBuilderQuestions]);
 
   const resetBankFilters = () => {
     setBankSearchInput("");
@@ -1054,7 +1194,11 @@ useEffect(() => {
   
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible" && session) load(session).catch((e: any) => setError(e.message));
+      if (document.visibilityState !== "visible" || !session) return;
+      const now = Date.now();
+      if (now - lastVisibilityRefreshRef.current < 2000) return;
+      lastVisibilityRefreshRef.current = now;
+      load(session, view).catch((e: any) => setError(e.message));
     };
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
@@ -1062,7 +1206,75 @@ useEffect(() => {
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [session, load]);
+  }, [session, view, load]);
+
+  useEffect(() => {
+    if (
+      !session ||
+      !profile?.active ||
+      !(view === "Overview" || view === "Quizzes" || view === "Marks summary" || activeQuiz)
+    ) return;
+
+    let realtimeConnected = false;
+    let disposed = false;
+    let realtimeRefreshTimeout: number | undefined;
+    const client = createClient(base, key, {
+      auth: {
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        persistSession: false
+      }
+    });
+    client.realtime.setAuth(session.access_token);
+    const channel = client
+      .channel(`quiz-updates-${session.user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "quizzes" },
+        payload => {
+          const updatedQuiz = payload.new as Partial<Quiz>;
+          if (activeQuiz && updatedQuiz.id === activeQuiz.id && updatedQuiz.ended_early_at) {
+            finishEarlyQuiz({ ...activeQuiz, ...updatedQuiz });
+          }
+          if (realtimeRefreshTimeout !== undefined) window.clearTimeout(realtimeRefreshTimeout);
+          realtimeRefreshTimeout = window.setTimeout(() => {
+            refreshQuizData(session).catch((e: unknown) => {
+              setError(e instanceof Error ? e.message : String(e));
+            });
+          }, 250);
+        }
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") {
+          realtimeConnected = true;
+          if (!lastQuizRefreshRef.current) lastQuizRefreshRef.current = Date.now();
+          return;
+        }
+        realtimeConnected = false;
+        if (!disposed && (status === "CHANNEL_ERROR" || status === "TIMED_OUT")) {
+          console.error(`Supabase Realtime ${status.toLowerCase()} while subscribing to quiz updates.`);
+          setError("Live quiz updates are unavailable; using periodic refresh until the connection recovers.");
+        }
+      });
+
+    const fallback = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const fallbackInterval = realtimeConnected ? 5 * 60_000 : 30_000;
+      if (Date.now() - lastQuizRefreshRef.current < fallbackInterval) return;
+      lastQuizRefreshRef.current = Date.now();
+      refreshQuizData(session).catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+    }, 30_000);
+
+    return () => {
+      disposed = true;
+      realtimeConnected = false;
+      window.clearInterval(fallback);
+      if (realtimeRefreshTimeout !== undefined) window.clearTimeout(realtimeRefreshTimeout);
+      void client.removeChannel(channel);
+    };
+  }, [session, profile?.active, view, activeQuiz, finishEarlyQuiz, refreshQuizData]);
 
 useEffect(() => {
     if (!session || !profile?.active || view !== "Duty calendar") return;
@@ -1097,7 +1309,7 @@ useEffect(() => {
     invalidateRequestCache(token);
     setRefreshing(true);
     try {
-      await load(session);
+      await load(session, view);
       if (view === "Question bank") {
         await loadQuestionBank(0, false);
       } else if (view === "Marks summary" && review) {
@@ -1225,7 +1437,7 @@ useEffect(() => {
             sessionStorage.removeItem(`civicprep_deadline_${orphaned.quiz_id}`);
           } catch {}
           flash("Your quiz was finalized and submitted because the previous tab or window was closed.");
-          await load(session);
+          await load(session, view);
         } catch (e: any) {
           console.error("Failed to auto-submit closed quiz attempt:", e);
         }
@@ -1233,81 +1445,32 @@ useEffect(() => {
     }
   }, [session, profile?.active, attempts, activeQuiz, token, load]);
 
-  // Early-End Heartbeat
-  useEffect(() => {
-    if (!activeQuiz || !token) return;
-    const poller = setInterval(async () => {
-      try {
-        const rows = await request(
-          route("quizzes", `id=eq.${activeQuiz.id}&select=ended_early_at,closes_at`),
-          token,
-          "GET",
-          undefined,
-          undefined,
-          { cache: false }
-        );
-        const qz = rows?.[0];
-        if (qz && (qz.ended_early_at || new Date(qz.closes_at).getTime() <= Date.now())) {
-          clearInterval(poller);
-          timerSubmitRef.current = true;
-          const endedTitle = activeQuiz.title;
-          const endedEarly = Boolean(qz.ended_early_at);
-          setActiveQuiz(null);
-          setDeadline(null);
-          setQuizQuestions([]);
-          setAnswers({});
-          setQuizBusy(false);
-          timerSubmitRef.current = false;
-          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-          try {
-            localStorage.removeItem(`civicprep_answers_${activeQuiz.id}`);
-            sessionStorage.removeItem("civicprep_active_quiz_id");
-            sessionStorage.removeItem(`civicprep_deadline_${activeQuiz.id}`);
-          } catch {}
-          if (session) await load(session);
-          flash(
-            endedEarly
-              ? `"${endedTitle}" was ended early by the instructor. Your autosaved answers were submitted.`
-              : `"${endedTitle}" time has closed.`
-          );
-        }
-      } catch {}
-    }, 5000);
-    return () => clearInterval(poller);
-  }, [activeQuiz, token, session, load]);
-
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
-    if (!session || !profile?.active || !canTakeQuizzes || (!hasPendingCloseMarks && !hasPendingReleaseQuiz)) return;
-    const refreshPendingResults = async () => {
-      try {
-        const [marks, summary, refreshedQuizzes] = await Promise.all([
-          request("/rest/v1/rpc/get_my_quiz_marks", token, "POST", {}, undefined, { cache: false }),
-          request("/rest/v1/rpc/get_my_quiz_summary", token, "POST", {}, undefined, { cache: false }),
-          request(
-            route(
-              "quizzes",
-              "select=id,title,kind,opens_at,closes_at,duration_minutes,published,result_visibility,results_published,ended_early_at,is_hidden&order=opens_at.desc&limit=120"
-            ),
-            token,
-            "GET",
-            undefined,
-            undefined,
-            { cache: false }
-          )
-        ]);
-        setQuizMarks(marks || []);
-        setQuizSummary(summary || null);
-        setQuizzes(refreshedQuizzes || []);
-      } catch {}
-    };
-    const id = window.setInterval(refreshPendingResults, 10_000);
-    return () => window.clearInterval(id);
-  }, [session, profile?.active, canTakeQuizzes, hasPendingCloseMarks, hasPendingReleaseQuiz, token]);
+    if (
+      !session ||
+      !profile?.active ||
+      !canTakeQuizzes ||
+      !hasPendingCloseMarks ||
+      !(view === "Overview" || view === "Quizzes")
+    ) return;
+    const nextClose = quizMarks
+      .filter(mark => mark.result_visibility === "after_close" && !mark.available)
+      .map(mark => new Date(mark.closes_at).getTime())
+      .filter(closeTime => Number.isFinite(closeTime) && closeTime > Date.now())
+      .sort((a, b) => a - b)[0];
+    const delay = nextClose === undefined ? 30_000 : Math.max(0, nextClose - Date.now() + 100);
+    const id = window.setTimeout(() => {
+      refreshQuizData(session).catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+    }, delay);
+    return () => window.clearTimeout(id);
+  }, [session, profile?.active, canTakeQuizzes, hasPendingCloseMarks, quizMarks, refreshQuizData, view]);
 
   // Global click listeners to close dropdown menus
   useEffect(() => {
@@ -1359,7 +1522,8 @@ useEffect(() => {
     setError("");
     try {
       await request(path, token, method, body, prefer);
-      if (session) await load(session);
+      if (session) await load(session, view);
+      if (view === "Question bank") await loadQuestionBank(0, false);
       flash("Saved successfully.");
       return true;
     } catch (e: any) {
@@ -1378,7 +1542,7 @@ useEffect(() => {
       localStorage.setItem("civicprep_session", JSON.stringify(s));
       setSession(s);
       setPassword("");
-      await load(s);
+      await load(s, "profile");
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -1468,8 +1632,7 @@ function logout() {
           note: null,
           already_assigned: false
         }));
-  const approved = questions.filter(q => q.status === "approved"),
-    pending = questions.filter(q => ["pending", "revision_requested"].includes(q.status)),
+  const pending = questions.filter(q => ["pending", "revision_requested"].includes(q.status)),
     myAttempts = new Map(attempts.map(a => [a.quiz_id, a]));
   const liveUnsubmitted = quizzes.filter(
     q =>
@@ -1563,7 +1726,7 @@ const links = [
       const parsed = parseImported(importText),
         payload = parsed.map(q => ({ ...q, ...(review ? { is_special: isSpecial } : {}) }));
       await request(route("questions"), token, "POST", payload, "return=minimal");
-      if (session) await load(session);
+      if (session) await load(session, view);
       setImportText("");
       setImportMessage("");
       setModalOpen(false);
@@ -1611,7 +1774,7 @@ const links = [
       setQuizBusy(false);
       timerSubmitRef.current = false;
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      if (session) await load(session);
+      if (session) await load(session, "Quizzes");
       if (quiz.result_visibility === "immediate")
         setSelectedResult(await request("/rest/v1/rpc/get_my_quiz_result", token, "POST", { p_quiz_id: quiz.id }));
       flash(auto ? `Time ended. ${quiz.title} was submitted automatically.` : "Quiz submitted. Attendance is recorded.");
@@ -1815,7 +1978,7 @@ const links = [
         }));
         await request(route("quiz_questions"), token, "POST", rows, "return=minimal");
       }
-      if (session) await load(session);
+      if (session) await load(session, view);
       flash("Quiz updated successfully.");
       setEditingQuiz(null);
       setBuilderOpen(false);
@@ -1841,7 +2004,7 @@ const links = [
       });
       setQuizzes(old => old.map(q => (q.id === z.id ? { ...q, opens_at, closes_at } : q)));
       flash(`"${z.title}" is now Live!`);
-      if (session) await load(session);
+      if (session) await load(session, view);
     } catch (e: any) {
       setError(e.message || "Failed to start quiz now.");
     }
@@ -2042,7 +2205,7 @@ const links = [
         `Quiz "${endQuizTarget.title}" ended. ${res?.auto_submitted_count ?? 0} active student attempt(s) were submitted automatically.`
       );
       setEndQuizTarget(null);
-      if (session) await load(session);
+      if (session) await load(session, view);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -2077,7 +2240,7 @@ const links = [
         p_status: status,
         p_reason: reason || null
       });
-      if (session) await load(session);
+      if (session) await load(session, view);
       flash(`Duty status updated: ${dutyStatuses[status] || status}.`);
     } catch (e: any) {
       setError(e.message);
@@ -2109,7 +2272,7 @@ const links = [
           p_target_count: p.target
         });
       }
-      if (session) await load(session);
+      if (session) await load(session, view);
       flash(`${r?.[0]?.full_name || "Duty"} saved for ${selectedDuty ? p.date : dutyDate}.`);
       return true;
     } catch (e: any) {
@@ -2126,7 +2289,7 @@ const links = [
     setDutyBusy(true);
     try {
       await request("/rest/v1/rpc/delete_duty", token, "POST", { p_duty_id: selectedDuty.id, p_reason: reason || null });
-      if (session) await load(session);
+      if (session) await load(session, view);
       flash(`Duty for ${dutyDate} deleted.`);
       return true;
     } catch (e: any) {
@@ -2276,7 +2439,7 @@ const eligibleStudents = people
       p_duration_minutes: p.duration,
       p_result_visibility: p.visibility
     });
-    if (session) await load(session);
+    if (session) await load(session, view);
     flash("Quiz created and published.");
   }
 
@@ -2411,7 +2574,7 @@ const eligibleStudents = people
             onClick={() => {
               if (!session) return;
               invalidateRequestCache(session.access_token);
-              load(session).catch((e: any) => setError(e.message));
+              load(session, "profile").catch((e: any) => setError(e.message));
             }}
           >
             Check approval
@@ -3919,7 +4082,7 @@ const eligibleStudents = people
             flash={flash}
             fail={setError}
             refresh={async () => {
-              if (session) await load(session);
+              if (session) await load(session, view);
             }}
           />
         )}
@@ -3942,7 +4105,19 @@ const eligibleStudents = people
             )}
             {builderOpen && canManageAcademics && (
               <QuizBuilder
-                questions={approved}
+                questions={questions}
+                totalQuestions={quizBuilderQuestionTotal}
+                loadedQuestionCount={Math.min(quizBuilderQuestionOffset, quizBuilderQuestionTotal)}
+                currentTime={clock}
+                hasMoreQuestions={quizBuilderQuestionOffset < quizBuilderQuestionTotal}
+                loadingQuestions={quizBuilderQuestionsLoading}
+                onLoadMoreQuestions={() => {
+                  if (session) {
+                    loadQuizBuilderQuestions(session, true).catch((e: unknown) => {
+                      setError(e instanceof Error ? e.message : String(e));
+                    });
+                  }
+                }}
                 memberName={memberName}
                 onCreate={createQuiz}
                 onUpdate={updateQuiz}
@@ -5168,7 +5343,7 @@ const eligibleStudents = people
                           setNewEmail("");
                           setNewMemberPassword("");
                           setNewEnrollment("");
-                          if (session) await load(session);
+                          if (session) await load(session, view);
                           flash(x.message || "Account created.");
                           setMemberModal(false);
                         } catch (e: any) {
@@ -5399,7 +5574,7 @@ const eligibleStudents = people
                             });
                             flash(`Updated role for ${roleModalTarget.full_name}.`);
                             setRoleModalTarget(null);
-                            if (session) await load(session);
+                            if (session) await load(session, view);
                           } catch (err: any) {
                             setError(err.message || "Failed to update member role");
                           } finally {
@@ -5483,7 +5658,7 @@ const eligibleStudents = people
                               });
                               flash(willDeactivate ? `Deactivated ${deactivateModalTarget.full_name}.` : `Activated ${deactivateModalTarget.full_name}.`);
                               setDeactivateModalTarget(null);
-                              if (session) await load(session);
+                              if (session) await load(session, view);
                             } catch (err: any) {
                               setError(err.message || "Failed to change member status");
                             } finally {
@@ -5565,7 +5740,7 @@ const eligibleStudents = people
                             });
                             flash(`Approved and activated ${approveModalTarget.full_name}.`);
                             setApproveModalTarget(null);
-                            if (session) await load(session);
+                            if (session) await load(session, view);
                           } catch (err: any) {
                             setError(err.message || "Failed to approve member");
                           } finally {

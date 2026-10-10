@@ -16,6 +16,8 @@ The SQL files in this folder are bootstrap scripts and incremental repairs, not 
 
 For the inspected live project, `fix_live_question_visibility_and_quiz_submissions.sql` is the targeted patch for student question visibility, practice-pool visibility, and quiz answer recovery. It has been run in the SQL Editor. Before applying any other historical SQL to this project, compare it with the live schema.
 
+Run `enable_quiz_realtime.sql` once in the Supabase SQL Editor to add quiz changes to the `supabase_realtime` publication. The app uses this stream for quiz scheduling, early closure, and result-release updates; existing RLS policies continue to control which quiz rows each authenticated user can read.
+
 The enrollment migration stores a unique enrollment number on student and student-leader profiles. Teachers do not get one. The latest upgrade backfills missing profile numbers from the student’s auth signup metadata. If both records lack the number, the super admin can enter it once in People.
 
 ## Authentication settings
@@ -43,6 +45,7 @@ The enrollment migration stores a unique enrollment number on student and studen
 - Teachers and super admins can tag special questions and filter the bank by date, contributor, and category while creating a quiz.
 - Quiz results may appear after each submission or after a teacher/super admin publishes them. Students can revisit released answers and explanations.
 - Student and student-leader enrollment numbers come from signup. The activation RPC uses the saved profile value or auth signup metadata automatically. The super admin enters a number only when neither signup record has it.
-- Question and quiz data refresh when users switch sections or return to the tab.
+- Each section loads only its relevant data when opened. Returning to a visible tab refreshes that section once, even when both focus and visibility events fire.
+- Question Bank results load 10 questions at a time. The quiz builder loads 100 approved questions when opened and lets teachers fetch further batches on demand. Quiz schedule and result-release changes use Supabase Realtime with a slow refresh fallback; results that become available at quiz close are refreshed at the scheduled close time.
 
 The Site URL is publicly reachable so prospective students and teachers can open sign-up. Workspace data still requires an authenticated, active Supabase profile; keep the RLS policies enabled.
