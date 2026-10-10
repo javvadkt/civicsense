@@ -545,6 +545,7 @@ const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null),
   const autosaveTimerRef = useRef<any>(null);
   const token = session?.access_token || "";
   const hasPendingCloseMarks = quizMarks.some(mark => mark.result_visibility === "after_close" && !mark.available);
+  const hasPendingReleaseQuiz = quizzes.some(quiz => quiz.result_visibility === "after_release" && !quiz.results_published);
 
 // Dedicated Question Bank State
   const [bankQuestions, setBankQuestions] = useState<Question[]>([]);
@@ -1281,20 +1282,32 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
-    if (!session || !profile?.active || !hasPendingCloseMarks) return;
-    const refreshReleasedMarks = async () => {
+    if (!session || !profile?.active || !canTakeQuizzes || (!hasPendingCloseMarks && !hasPendingReleaseQuiz)) return;
+    const refreshPendingResults = async () => {
       try {
-        const [marks, summary] = await Promise.all([
+        const [marks, summary, refreshedQuizzes] = await Promise.all([
           request("/rest/v1/rpc/get_my_quiz_marks", token, "POST", {}, undefined, { cache: false }),
-          request("/rest/v1/rpc/get_my_quiz_summary", token, "POST", {}, undefined, { cache: false })
+          request("/rest/v1/rpc/get_my_quiz_summary", token, "POST", {}, undefined, { cache: false }),
+          request(
+            route(
+              "quizzes",
+              "select=id,title,kind,opens_at,closes_at,duration_minutes,published,result_visibility,results_published,ended_early_at,is_hidden&order=opens_at.desc&limit=120"
+            ),
+            token,
+            "GET",
+            undefined,
+            undefined,
+            { cache: false }
+          )
         ]);
         setQuizMarks(marks || []);
         setQuizSummary(summary || null);
+        setQuizzes(refreshedQuizzes || []);
       } catch {}
     };
-    const id = window.setInterval(refreshReleasedMarks, 10_000);
+    const id = window.setInterval(refreshPendingResults, 10_000);
     return () => window.clearInterval(id);
-  }, [session, profile?.active, hasPendingCloseMarks, token]);
+  }, [session, profile?.active, canTakeQuizzes, hasPendingCloseMarks, hasPendingReleaseQuiz, token]);
 
   // Global click listeners to close dropdown menus
   useEffect(() => {
@@ -4013,6 +4026,16 @@ const eligibleStudents = people
                   const hasDraft = isInProgress || (typeof window !== "undefined" && Boolean(localStorage.getItem(`civicprep_answers_${z.id}`)));
                   const hoursUntil = Math.max(1, Math.ceil((o - clock) / 36e5));
 
+                  const resultStatus = z.result_visibility === "immediate"
+                    ? { label: "Results available", cls: "approved" }
+                    : z.result_visibility === "after_release"
+                    ? z.results_published
+                      ? { label: "Results published", cls: "approved" }
+                      : { label: "Not published yet", cls: "pending" }
+                    : isClosed
+                    ? { label: "Results available", cls: "approved" }
+                    : { label: "Available when quiz closes", cls: "pending" };
+
                   // Academic controller privileges (Teacher only)
                   const canPublish = canManageAcademics && z.result_visibility === "after_release" && !z.results_published;
                   const resultsReady = z.result_visibility === "immediate"
@@ -4022,7 +4045,6 @@ const eligibleStudents = people
                   const canViewQuestions = canManageAcademics;
                   const canReviewAnswers =
                     canTakeQuizzes &&
-                    isClosed &&
                     isSubmitted &&
                     resultsReady;
                   const canStartNow = canManageAcademics && isUpcoming;
@@ -4034,7 +4056,7 @@ const eligibleStudents = people
 
                   // Kebab menu visibility rules
                   const hasDropdownActions = !canManageAcademics && !isLeader
-                    ? (isClosed && canReviewAnswers)
+                    ? canReviewAnswers
                     : (canViewAttendees ||
                        canViewQuestions ||
                        canPublish ||
@@ -4064,6 +4086,7 @@ const eligibleStudents = people
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
                           <strong style={{ fontSize: "16px" }}>{z.title}</strong>
                           <span className={`tag ${statusTag.cls}`}>{statusTag.label}</span>
+                          <span className={`tag ${resultStatus.cls}`}>{resultStatus.label}</span>
                           {isHidden && <span className="tag pending">Teacher only</span>}
                         </div>
                         <div style={{ fontSize: "13px", color: "var(--muted-fg,#64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -4080,8 +4103,6 @@ const eligibleStudents = people
                             })}{" "}
                             – {new Date(z.closes_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
-                          <span>•</span>
-                          <span>Results {z.result_visibility === "immediate" ? "immediate" : z.result_visibility === "after_close" ? "when quiz closes" : "after release"}</span>
                         </div>
                         {attempt && isSubmitted ? (
                           <small className="attended" style={{ display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
@@ -4110,13 +4131,7 @@ const eligibleStudents = people
                        {/* Test Taker Primary Card Button */}
                         {canTakeQuizzes &&
                           (isSubmitted ? (
-                            !resultsReady ? (
-                              <span className="tag pending">Results pending</span>
-                            ) : isLive ? (
-                              <button className="outline" onClick={() => showResult(z)}>
-                                Review answers
-                              </button>
-                            ) : null
+                            null
                           ) : isInProgress ? (
                             <button className="outline" disabled>
                               Finalizing submission…
@@ -4199,7 +4214,7 @@ const eligibleStudents = people
                                   </button>
                                 )}
 
-                                {/* Review answers in kebab menu on closed quizzes for students/leaders */}
+                                {/* Review published results from the kebab menu */}
                                 {canReviewAnswers && (
                                   <button
                                     className="plain"
